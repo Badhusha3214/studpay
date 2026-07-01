@@ -16,15 +16,31 @@ export function useNfc() {
     scannedUid.value = '';
 
     if (isCapacitor) {
-      return new Promise((resolve, reject) => {
-        NFC.addListener('nfcEvent', (event: any) => {
+      // Check NFC is enabled on the device before scanning
+      try {
+        const status = await NFC.getStatus();
+        if (status.status !== 'NFC_OK') {
+          scanning.value = false;
+          error.value = status.status === 'NFC_DISABLED'
+            ? 'NFC is disabled. Please enable it in Settings.'
+            : 'NFC is not available on this device.';
+          throw new Error(error.value);
+        }
+      } catch (e: any) {
+        if (e.message === error.value) throw e; // re-throw our own error
+        // getStatus itself failed — proceed anyway
+      }
+
+      return new Promise(async (resolve, reject) => {
+        // Must await addListener before startScanning to avoid missing the event
+        await NFC.addListener('nfcEvent', (event: any) => {
           const tagId = event?.tag?.id;
 
           let uid: string;
           if (Array.isArray(tagId)) {
             uid = tagId.map((b: number) => b.toString(16).padStart(2, '0')).join('').toUpperCase();
           } else {
-            uid = String(tagId ?? '').toUpperCase();
+            uid = String(tagId ?? '').replace(/:/g, '').toUpperCase();
           }
 
           scannedUid.value = uid;
@@ -32,6 +48,10 @@ export function useNfc() {
           NFC.removeAllListeners();
           NFC.stopScanning();
           resolve(uid);
+        }).catch((err: any) => {
+          scanning.value = false;
+          error.value    = err?.message ?? 'Failed to register NFC listener';
+          reject(err);
         });
 
         NFC.startScanning({ invalidateAfterFirstRead: true }).catch((err: any) => {
@@ -42,7 +62,7 @@ export function useNfc() {
       });
     }
 
-    // Web simulation
+    // Web simulation — 2 second delay
     return new Promise((resolve) => {
       setTimeout(() => {
         const uid        = 'A1B2C3D4';
