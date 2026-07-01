@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>StudPay — Full Preview</title>
+<style>
+:root{
+  --sp-purple:#6C63FF;--sp-purple-dark:#574fd6;--sp-purple-light:#EDE9FF;
+  --sp-teal:#00C9A7;--sp-teal-light:#D6FBF5;
+  --sp-orange:#FF6B6B;--sp-orange-light:#FFE8E8;
+  --sp-bg:#F4F3FF;--sp-card:#fff;
+  --sp-text:#1A1A2E;--sp-sub:#6B6B8A;--sp-border:#E8E8F0;
+  --sh:0 4px 20px rgba(108,99,255,.12);--shl:0 8px 32px rgba(108,99,255,.2);
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#dddcf5;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:20px}
+h1.page-title{color:white;font-size:22px;font-weight:800;margin-bottom:4px}
+.subtitle{color:rgba(255,255,255,.7);font-size:13px;margin-bottom:20px}
+.phone{width:390px;min-height:780px;background:var(--sp-bg);border-radius:44px;overflow:hidden;box-shadow:0 32px 80px rgba(0,0,0,.3),inset 0 0 0 1px rgba(255,255,255,.3);display:flex;flex-direction:column;position:relative}
+.status-bar{height:44px;background:var(--sp-purple);display:flex;align-items:center;justify-content:space-between;padding:0 24px;flex-shrink:0}
+.status-bar span{color:white;font-size:13px;font-weight:600}
+.screen{display:none;flex:1;flex-direction:column;overflow:hidden;min-height:0}
+.screen.active{display:flex}
+
+/* Nav pill */
+.nav-pills{display:flex;gap:8px;justify-content:center;margin-bottom:16px;flex-wrap:wrap;max-width:560px}
+.np{padding:8px 18px;border-radius:100px;background:rgba(255,255,255,.15);color:white;font-size:12px;font-weight:700;cursor:pointer;border:2px solid transparent;transition:all .15s;white-space:nowrap}
+.np:hover,.np.active{background:white;color:var(--sp-purple);border-color:white}
+
+/* LOGIN */
+.login-hero{background:linear-gradient(160deg,var(--sp-purple) 0%,#9C8FFF 44%,var(--sp-bg) 44%);padding:48px 24px 36px;display:flex;flex-direction:column;align-items:center;color:white}
+.logo-box{width:76px;height:76px;background:rgba(255,255,255,.2);border-radius:22px;display:flex;align-items:center;justify-content:center;font-size:38px;margin-bottom:14px;backdrop-filter:blur(10px)}
+.login-hero h1{font-size:34px;font-weight:800;letter-spacing:-1px}
+.login-hero p{font-size:13px;opacity:.85;margin-top:4px}
+.login-card{background:white;border-radius:28px 28px 0 0;flex:1;padding:28px 22px 32px;margin-top:-8px;overflow-y:auto}
+.login-card h2{font-size:22px;font-weight:800}
+.login-card .sub{color:var(--sp-sub);font-size:13px;margin:4px 0 22px}
+.flabel{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--sp-sub);margin-bottom:5px}
+.finput{width:100%;background:var(--sp-bg);border:none;border-radius:12px;padding:12px 14px;font-size:15px;color:var(--sp-text);outline:none;margin-bottom:16px}
+.btn-primary{width:100%;background:var(--sp-purple);color:white;border:none;border-radius:14px;height:52px;font-size:16px;font-weight:700;cursor:pointer}
+.btn-primary:hover{opacity:.9}
+.demo-hint{display:flex;align-items:center;gap:6px;justify-content:center;margin-top:18px;font-size:11px;color:var(--sp-sub)}
+
+/* TOOLBAR */
+.toolbar{background:var(--sp-purple);color:white;padding:0 16px;height:52px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.toolbar h2{font-size:17px;font-weight:700}
+.toolbar-btn{background:none;border:none;color:white;font-size:13px;font-weight:600;cursor:pointer;padding:6px 10px;border-radius:8px}
+
+/* WALLET */
+.scrollable{flex:1;overflow-y:auto}
+.grad-card{background:linear-gradient(135deg,var(--sp-purple) 0%,#9C8FFF 100%);border-radius:24px;padding:22px;margin:14px;color:white;box-shadow:var(--shl)}
+.gc-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px}
+.gc-label{font-size:11px;opacity:.8}
+.gc-balance{font-size:34px;font-weight:800;letter-spacing:-1px;margin-top:4px}
+.avatar{width:44px;height:44px;background:rgba(255,255,255,.2);border-radius:13px;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700}
+.gc-bottom{display:flex;gap:18px;align-items:flex-end}
+.gc-sub{font-size:10px;opacity:.8}.gc-val{font-size:13px;font-weight:600;margin-top:2px}
+.nfc-badge{margin-left:auto;background:rgba(255,255,255,.2);border-radius:100px;padding:3px 10px;font-size:10px;font-weight:700}
+.quick-row{display:flex;gap:10px;padding:4px 14px 14px;overflow-x:auto}
+.qa{display:flex;flex-direction:column;align-items:center;gap:6px;min-width:64px;cursor:pointer}
+.qa span{font-size:11px;font-weight:600;color:var(--sp-sub)}
+.qa-icon{width:50px;height:50px;border-radius:15px;display:flex;align-items:center;justify-content:center;font-size:22px}
+.qa-icon.p{background:var(--sp-purple-light);color:var(--sp-purple)}
+.qa-icon.t{background:var(--sp-teal-light);color:var(--sp-teal)}
+.qa-icon.o{background:var(--sp-orange-light);color:var(--sp-orange)}
+.qa-icon.y{background:#FFF5D6;color:#C9860A}
+.sec-title{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--sp-sub);padding:6px 16px 4px}
+.txn-row-w{display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--sp-border)}
+.txn-ico{width:40px;height:40px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0}
+.txn-ico.c{background:var(--sp-teal-light);color:var(--sp-teal)}.txn-ico.d{background:var(--sp-orange-light);color:var(--sp-orange)}
+.txn-info{flex:1}.txn-desc{font-size:14px;font-weight:600}.txn-meta{font-size:11px;color:var(--sp-sub);margin-top:2px}
+.txn-amt{font-size:14px;font-weight:700}.txn-amt.c{color:var(--sp-teal)}.txn-amt.d{color:var(--sp-orange)}
+
+/* TABBAR */
+.tab-bar{height:64px;background:white;border-top:1px solid var(--sp-border);display:flex;box-shadow:0 -4px 16px rgba(108,99,255,.1);flex-shrink:0}
+.tab-btn{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;border:none;background:none;cursor:pointer;color:var(--sp-sub);font-size:9px;font-weight:600;transition:color .15s}
+.tab-btn.active{color:var(--sp-purple)}
+.tab-btn svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.pay-fab-wrap{flex:1;display:flex;justify-content:center;align-items:center}
+.pay-fab{width:52px;height:52px;background:linear-gradient(135deg,var(--sp-purple),#9C8FFF);border-radius:16px;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 16px rgba(108,99,255,.45);margin-top:-18px;cursor:pointer;border:none}
+.pay-fab svg{width:24px;height:24px;stroke:white;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+
+/* PAY */
+.scan-hero{display:flex;flex-direction:column;align-items:center;padding:28px 24px 18px}
+.nfc-ring{width:124px;height:124px;border-radius:50%;background:var(--sp-purple-light);display:flex;align-items:center;justify-content:center;margin-bottom:16px;position:relative}
+.nfc-ring::before{content:'';position:absolute;inset:-10px;border-radius:50%;border:2px dashed rgba(108,99,255,.25)}
+.nfc-ring.pulsing .nfc-inner{animation:pulse 1.4s ease-in-out infinite}
+.nfc-inner{width:88px;height:88px;border-radius:50%;background:var(--sp-purple);display:flex;align-items:center;justify-content:center;box-shadow:0 8px 24px rgba(108,99,255,.4);font-size:38px;color:white}
+@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.14)}}
+.scan-title{font-size:19px;font-weight:800}.scan-sub{font-size:12px;color:var(--sp-sub);text-align:center;margin-top:4px}
+.pay-card{background:white;border-radius:18px;box-shadow:var(--sh);padding:16px;margin:0 14px}
+.amt-row{display:flex;align-items:center;gap:4px;background:var(--sp-bg);border-radius:12px;padding:4px 14px}
+.rupee{font-size:20px;font-weight:700;color:var(--sp-purple)}
+.amt-inp{flex:1;border:none;background:transparent;font-size:24px;font-weight:800;color:var(--sp-text);outline:none;width:100%}
+.chip-row{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.amt-chip{padding:4px 12px;border-radius:100px;background:var(--sp-bg);font-size:12px;font-weight:600;color:var(--sp-sub);cursor:pointer;border:2px solid transparent;transition:all .15s}
+.amt-chip.active,.amt-chip:hover{background:var(--sp-purple-light);color:var(--sp-purple);border-color:var(--sp-purple)}
+.scan-btn{width:calc(100% - 28px);margin:12px 14px;background:linear-gradient(135deg,var(--sp-purple),#9C8FFF);color:white;border:none;border-radius:14px;height:52px;font-size:15px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px}
+
+/* PIN */
+.pin-wrap{display:flex;flex-direction:column;align-items:center;padding:24px 20px 20px;flex:1}
+.pay-summary{text-align:center;margin-bottom:24px}
+.pay-to{font-size:12px;color:var(--sp-sub);margin-bottom:2px}
+.merch-name{font-size:20px;font-weight:800}
+.amt-badge{display:inline-block;background:var(--sp-purple);color:white;font-size:24px;font-weight:800;padding:6px 22px;border-radius:13px;margin-top:10px}
+.pin-dots{display:flex;gap:14px;margin-bottom:6px}
+.dot{width:13px;height:13px;border-radius:50%;background:var(--sp-border);transition:background .2s}
+.dot.filled{background:var(--sp-purple)}
+.pin-hint{font-size:11px;color:var(--sp-sub);margin-bottom:22px}
+.keypad{display:grid;grid-template-columns:repeat(3,70px);gap:13px}
+.pkey{width:70px;height:70px;border-radius:50%;background:white;box-shadow:0 2px 8px rgba(0,0,0,.08);display:flex;align-items:center;justify-content:center;font-size:21px;font-weight:600;color:var(--sp-text);cursor:pointer;border:none;transition:transform .1s;user-select:none}
+.pkey:active{transform:scale(.91)}
+.pkey.del{color:var(--sp-orange)}.pkey.ok{background:var(--sp-purple);color:white}.pkey.empty{background:transparent;box-shadow:none;cursor:default}
+
+/* RECEIPT */
+.receipt-wrap{display:flex;flex-direction:column;align-items:center;padding:36px 18px 24px;flex:1;overflow-y:auto}
+.success-ring{width:108px;height:108px;border-radius:50%;background:var(--sp-teal-light);display:flex;align-items:center;justify-content:center;margin-bottom:14px}
+.success-circle{width:80px;height:80px;border-radius:50%;background:var(--sp-teal);display:flex;align-items:center;justify-content:center;box-shadow:0 8px 24px rgba(0,201,167,.4);font-size:38px;color:white}
+.success-title{font-size:22px;font-weight:800;margin-bottom:4px}
+.success-sub{font-size:13px;color:var(--sp-sub);margin-bottom:20px}
+.rcpt-card{background:white;border-radius:18px;box-shadow:var(--shl);width:100%;max-width:340px;overflow:hidden;margin-bottom:20px}
+.rcpt-head{background:var(--sp-purple);color:white;padding:10px 14px;display:flex;justify-content:space-between;font-size:11px;font-weight:600}
+.rcpt-amt{text-align:center;font-size:36px;font-weight:800;padding:16px 0;letter-spacing:-1px}
+.rcpt-rows{padding:0 14px 14px}
+.rrow{display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid var(--sp-border);font-size:12px}
+.rrow span{color:var(--sp-sub)}.rrow strong{font-weight:600}.rrow .hi{color:var(--sp-purple);font-size:14px}
+.btn-done{width:100%;max-width:340px;background:var(--sp-purple);color:white;border:none;border-radius:14px;height:48px;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:8px}
+.btn-again{width:100%;max-width:340px;background:none;color:var(--sp-purple);border:2px solid var(--sp-purple);border-radius:14px;height:48px;font-size:14px;font-weight:600;cursor:pointer}
+
+/* HISTORY */
+.sum-strip{display:flex;align-items:center;background:white;border-radius:18px;margin:14px;padding:12px 16px;box-shadow:var(--sh)}
+.sum-item{flex:1;display:flex;align-items:center;gap:8px}
+.s-ico{font-size:20px}
+.s-lbl{font-size:10px;color:var(--sp-sub)}.s-val{font-size:15px;font-weight:800;margin-top:1px}
+.s-val.d{color:var(--sp-orange)}.s-val.c{color:var(--sp-teal)}
+.sum-div{width:1px;height:32px;background:var(--sp-border);margin:0 12px}
+.filters{display:flex;gap:7px;padding:0 14px 10px}
+.ftab{padding:4px 14px;border-radius:100px;font-size:12px;font-weight:600;background:white;color:var(--sp-sub);cursor:pointer;border:2px solid transparent}
+.ftab.active{background:var(--sp-purple-light);color:var(--sp-purple);border-color:var(--sp-purple)}
+.txn-card{display:flex;align-items:center;justify-content:space-between;background:white;margin:5px 14px;padding:12px 14px;border-radius:14px;box-shadow:0 2px 8px rgba(0,0,0,.05)}
+.txn-left{display:flex;align-items:center;gap:10px}
+.sp-chip{display:inline-flex;align-items:center;padding:3px 10px;border-radius:100px;font-size:10px;font-weight:600}
+.sp-chip.c{background:var(--sp-teal-light);color:#00916A}
+.sp-chip.d{background:var(--sp-orange-light);color:#C0392B}
+
+/* ── NFC MANAGEMENT ── */
+.nfc-stats{display:flex;gap:14px;padding:10px 16px 12px;font-size:12px;font-weight:600;color:var(--sp-sub)}
+.ns-item{display:flex;align-items:center;gap:5px}
+.ns-dot{width:9px;height:9px;border-radius:50%}
+.ns-dot.on{background:var(--sp-teal)}.ns-dot.off{background:var(--sp-border)}
+.nfc-tag-card{background:white;border-radius:16px;margin:5px 14px;padding:13px;box-shadow:var(--sh)}
+.ntc-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.uid-pill{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:100px;font-size:11px;font-weight:700;font-family:monospace}
+.uid-pill.on{background:var(--sp-purple-light);color:var(--sp-purple)}
+.uid-pill.off{background:var(--sp-border);color:var(--sp-sub)}
+.ntc-actions{display:flex;gap:4px}
+.act-btn{padding:4px 10px;border-radius:8px;border:none;font-size:11px;font-weight:700;cursor:pointer}
+.act-btn.warn{background:#FFF5D6;color:#C9860A}.act-btn.danger{background:var(--sp-orange-light);color:var(--sp-orange)}
+.ntc-student{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.ntc-av{width:40px;height:40px;border-radius:12px;background:var(--sp-purple-light);color:var(--sp-purple);display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;flex-shrink:0}
+.ntc-name{font-size:14px;font-weight:700;margin:0}
+.ntc-meta{font-size:11px;color:var(--sp-sub);margin:2px 0 0}
+.ntc-bal{margin-left:auto;text-align:right}
+.nb-lbl{font-size:10px;color:var(--sp-sub);margin:0}
+.nb-val{font-size:16px;font-weight:800;color:var(--sp-purple);margin:2px 0 0}
+.ntc-quick{display:flex;gap:6px;border-top:1px solid var(--sp-border);padding-top:9px}
+.nq-btn{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:10px;font-weight:600;color:var(--sp-sub);cursor:pointer}
+.nq-btn span{font-size:16px}
+.add-nfc-fab{position:absolute;bottom:80px;right:20px;width:52px;height:52px;background:var(--sp-purple);border-radius:16px;display:flex;align-items:center;justify-content:center;font-size:26px;color:white;cursor:pointer;box-shadow:var(--shl);border:none}
+
+/* ── STUDENTS ── */
+.stu-card{display:flex;align-items:center;gap:12px;background:white;border-radius:14px;margin:5px 14px;padding:12px;box-shadow:var(--sh);cursor:pointer}
+.stu-av{width:44px;height:44px;border-radius:13px;background:var(--sp-purple-light);color:var(--sp-purple);display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;flex-shrink:0}
+.stu-inf{flex:1;min-width:0}
+.stu-name{font-size:14px;font-weight:700;margin:0}
+.stu-meta{font-size:11px;color:var(--sp-sub);margin:2px 0 3px}
+.stu-badge{display:inline-flex;align-items:center;gap:3px;font-size:10px;font-weight:700;padding:2px 7px;border-radius:100px}
+.stu-badge.nfc{background:var(--sp-purple-light);color:var(--sp-purple);font-family:monospace}
+.stu-badge.none{background:var(--sp-border);color:var(--sp-sub)}
+.stu-bal{text-align:right}
+.sb-lbl{font-size:10px;color:var(--sp-sub);margin:0}
+.sb-val{font-size:15px;font-weight:800;color:var(--sp-purple);margin:2px 0 0}
+
+/* ── ADMIN ── */
+.stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:14px}
+.sc{border-radius:16px;padding:14px}
+.sc.p{background:var(--sp-purple);color:white}.sc.t{background:var(--sp-teal);color:white}
+.sc.o{background:var(--sp-orange);color:white}.sc.y{background:#F6A623;color:white}
+.sc-val{font-size:26px;font-weight:800}.sc-lbl{font-size:11px;opacity:.85;margin-top:3px}
+.sp-card-sm{background:white;border-radius:18px;box-shadow:var(--sh);padding:16px;margin:0 14px 12px}
+.log-row{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-bottom:1px solid var(--sp-border);background:white}
+.log-left{display:flex;align-items:center;gap:8px}
+.log-ico{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:14px}
+.log-ico.c{background:var(--sp-teal-light);color:var(--sp-teal)}.log-ico.d{background:var(--sp-orange-light);color:var(--sp-orange)}
+.log-name{font-size:12px;font-weight:600;margin:0}
+.log-desc{font-size:10px;color:var(--sp-sub);margin:2px 0 0}
+.log-amt{font-size:13px;font-weight:700}
+.log-amt.c{color:var(--sp-teal)}.log-amt.d{color:var(--sp-orange)}
+
+/* Modal overlay */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:100;display:none;align-items:flex-end;justify-content:center}
+.modal-overlay.open{display:flex}
+.modal-sheet{background:white;border-radius:24px 24px 0 0;width:100%;max-width:390px;padding:20px;max-height:90vh;overflow-y:auto}
+.modal-handle{width:36px;height:4px;background:var(--sp-border);border-radius:2px;margin:0 auto 16px}
+.modal-title{font-size:18px;font-weight:800;margin-bottom:16px}
+.modal-close{float:right;background:var(--sp-bg);border:none;border-radius:8px;padding:4px 10px;cursor:pointer;font-size:13px;font-weight:600;color:var(--sp-sub)}
+
+@keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+.fade-up{animation:fadeUp .35s ease forwards}
+</style>
+</head>
+<body>
+
+<!-- Navigation pills -->
+<h1 class="page-title">📱 StudPay — Interactive Preview</h1>
+<p class="subtitle">Click any screen below to preview</p>
+<div class="nav-pills">
+  <div class="np active" onclick="goTo('login')">🔐 Login</div>
+  <div class="np" onclick="goTo('wallet')">💳 Wallet</div>
+  <div class="np" onclick="goTo('pay')">📲 Tap to Pay</div>
+  <div class="np" onclick="goTo('pin')">🔢 PIN Entry</div>
+  <div class="np" onclick="goTo('receipt')">🧾 Receipt</div>
+  <div class="np" onclick="goTo('history')">📋 History</div>
+  <div class="np" onclick="goTo('nfc')">📶 NFC Tags</div>
+  <div class="np" onclick="goTo('students')">👨‍🎓 Students</div>
+  <div class="np" onclick="goTo('admin')">⚙️ Admin</div>
+</div>
+
+<div class="phone">
+  <div class="status-bar">
+    <span>9:41</span><span>StudPay</span><span>🔋 100%</span>
+  </div>
+
+  <!-- ══════════════ LOGIN ══════════════ -->
+  <div class="screen active" id="s-login">
+    <div class="login-hero">
+      <div class="logo-box">💳</div>
+      <h1>StudPay</h1>
+      <p>Smart payments for smart students</p>
+    </div>
+    <div class="login-card">
+      <h2>Welcome back</h2>
+      <p class="sub">Sign in to your school wallet</p>
+      <div class="flabel">Email</div>
+      <input class="finput" value="arjun@student.school"/>
+      <div class="flabel">PIN</div>
+      <input class="finput" type="password" value="5678"/>
+      <button class="btn-primary" onclick="goTo('wallet')">Sign In</button>
+      <div class="demo-hint">ℹ️ Demo: <strong>arjun@student.school</strong> / PIN <strong>5678</strong><br>Admin: <strong>admin@studpay.school</strong> / <strong>1234</strong></div>
+    </div>
+  </div>
+
+  <!-- ══════════════ WALLET ══════════════ -->
+  <div class="screen" id="s-wallet">
+    <div class="toolbar"><h2>My Wallet</h2><button class="toolbar-btn" onclick="goTo('login')">Logout</button></div>
+    <div class="scrollable">
+      <div class="grad-card fade-up">
+        <div class="gc-top">
+          <div><div class="gc-label">Available Balance</div><div class="gc-balance" id="walletBal">₹450.00</div></div>
+          <div class="avatar">AM</div>
+        </div>
+        <div class="gc-bottom">
+          <div><div class="gc-sub">Student</div><div class="gc-val">Arjun Menon</div></div>
+          <div><div class="gc-sub">Class</div><div class="gc-val">10-A</div></div>
+          <div class="nfc-badge">📶 NFC · A1B2C3D4</div>
+        </div>
+      </div>
+      <div class="quick-row">
+        <div class="qa" onclick="goTo('pay')"><div class="qa-icon p">📲</div><span>Tap to Pay</span></div>
+        <div class="qa" onclick="goTo('history')"><div class="qa-icon t">📋</div><span>History</span></div>
+        <div class="qa" onclick="goTo('nfc')"><div class="qa-icon o">📶</div><span>NFC Tags</span></div>
+        <div class="qa" onclick="goTo('admin')"><div class="qa-icon y">⚙️</div><span>Admin</span></div>
+      </div>
+      <div class="sec-title">Recent Transactions</div>
+      <div class="txn-row-w"><div class="txn-ico d">↑</div><div class="txn-info"><div class="txn-desc">Lunch Combo</div><div class="txn-meta">School Canteen · 29 Jun</div></div><div class="txn-amt d">-₹50.00</div></div>
+      <div class="txn-row-w"><div class="txn-ico c">↓</div><div class="txn-info"><div class="txn-desc">Wallet Top-Up</div><div class="txn-meta">Parent Top-Up · 28 Jun</div></div><div class="txn-amt c">+₹200.00</div></div>
+      <div class="txn-row-w"><div class="txn-ico d">↑</div><div class="txn-info"><div class="txn-desc">Library Fine</div><div class="txn-meta">Library · 27 Jun</div></div><div class="txn-amt d">-₹20.00</div></div>
+      <div class="txn-row-w"><div class="txn-ico d">↑</div><div class="txn-info"><div class="txn-desc">Annual Day Ticket</div><div class="txn-meta">Events · 25 Jun</div></div><div class="txn-amt d">-₹80.00</div></div>
+      <div style="height:16px"></div>
+    </div>
+    <div class="tab-bar">
+      <button class="tab-btn active" onclick="goTo('wallet')">
+        <svg viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M16 12h2"/></svg>Wallet</button>
+      <div class="pay-fab-wrap"><button class="pay-fab" onclick="goTo('pay')"><svg viewBox="0 0 24 24"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="white"/></svg></button></div>
+      <button class="tab-btn" onclick="goTo('history')"><svg viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="3" cy="6" r="1" fill="currentColor"/><circle cx="3" cy="12" r="1" fill="currentColor"/><circle cx="3" cy="18" r="1" fill="currentColor"/></svg>History</button>
+    </div>
+  </div>
+
+  <!-- ══════════════ TAP TO PAY ══════════════ -->
+  <div class="screen" id="s-pay">
+    <div class="toolbar"><button class="toolbar-btn" onclick="goTo('wallet')">←</button><h2>Tap to Pay</h2><span></span></div>
+    <div class="scrollable">
+      <div class="scan-hero">
+        <div class="nfc-ring" id="nfcRing"><div class="nfc-inner">📶</div></div>
+        <div class="scan-title" id="scanTitle">Ready to Scan</div>
+        <div class="scan-sub" id="scanSub">Tap your NFC student card to pay</div>
+      </div>
+      <div class="pay-card">
+        <div class="flabel">Merchant</div>
+        <input class="finput" id="merchant" value="School Canteen" style="margin-bottom:10px"/>
+        <div class="flabel">Description</div>
+        <input class="finput" id="desc" placeholder="e.g. Lunch combo" style="margin-bottom:10px"/>
+        <div class="flabel">Amount (₹)</div>
+        <div class="amt-row"><span class="rupee">₹</span><input class="amt-inp" type="number" id="amount" placeholder="0"/></div>
+        <div class="chip-row">
+          <div class="amt-chip" onclick="setAmt(20,this)">₹20</div>
+          <div class="amt-chip" onclick="setAmt(30,this)">₹30</div>
+          <div class="amt-chip" onclick="setAmt(50,this)">₹50</div>
+          <div class="amt-chip" onclick="setAmt(100,this)">₹100</div>
+        </div>
+      </div>
+      <button class="scan-btn" onclick="startScan()">📶 Scan & Pay</button>
+    </div>
+    <div class="tab-bar">
+      <button class="tab-btn" onclick="goTo('wallet')"><svg viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M16 12h2"/></svg>Wallet</button>
+      <div class="pay-fab-wrap"><button class="pay-fab" onclick="goTo('pay')"><svg viewBox="0 0 24 24"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="white"/></svg></button></div>
+      <button class="tab-btn" onclick="goTo('history')"><svg viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="3" cy="6" r="1" fill="currentColor"/><circle cx="3" cy="12" r="1" fill="currentColor"/><circle cx="3" cy="18" r="1" fill="currentColor"/></svg>History</button>
+    </div>
+  </div>
+
+  <!-- ══════════════ PIN ══════════════ -->
+  <div class="screen" id="s-pin">
+    <div class="toolbar"><button class="toolbar-btn" onclick="goTo('pay')">← Back</button><h2>Enter PIN</h2><span></span></div>
+    <div class="pin-wrap">
+      <div class="pay-summary">
+        <div class="pay-to">Payment to</div>
+        <div class="merch-name" id="pinMerchant">School Canteen</div>
+        <div class="amt-badge" id="pinAmt">₹50.00</div>
+      </div>
+      <div class="pin-dots" id="pinDots">
+        <div class="dot" id="d0"/><div class="dot" id="d1"/><div class="dot" id="d2"/><div class="dot" id="d3"/>
+      </div>
+      <div class="pin-hint">Enter your 4-digit PIN to confirm</div>
+      <div class="keypad">
+        <button class="pkey" onclick="pk('1')">1</button><button class="pkey" onclick="pk('2')">2</button><button class="pkey" onclick="pk('3')">3</button>
+        <button class="pkey" onclick="pk('4')">4</button><button class="pkey" onclick="pk('5')">5</button><button class="pkey" onclick="pk('6')">6</button>
+        <button class="pkey" onclick="pk('7')">7</button><button class="pkey" onclick="pk('8')">8</button><button class="pkey" onclick="pk('9')">9</button>
+        <button class="pkey del" onclick="pk('del')">⌫</button><button class="pkey" onclick="pk('0')">0</button><button class="pkey ok" onclick="pk('ok')">✓</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════ RECEIPT ══════════════ -->
+  <div class="screen" id="s-receipt">
+    <div class="receipt-wrap">
+      <div class="success-ring"><div class="success-circle">✓</div></div>
+      <div class="success-title">Payment Successful!</div>
+      <div class="success-sub">Transaction completed</div>
+      <div class="rcpt-card">
+        <div class="rcpt-head"><span>StudPay Receipt</span><span id="rcptDate">29 Jun 2026, 09:41 AM</span></div>
+        <div class="rcpt-amt" id="rcptAmt">₹50.00</div>
+        <div class="rcpt-rows">
+          <div class="rrow"><span>Merchant</span><strong id="rcptMerchant">School Canteen</strong></div>
+          <div class="rrow"><span>Description</span><strong id="rcptDesc">Lunch combo</strong></div>
+          <div class="rrow"><span>NFC Card</span><strong style="font-family:monospace;font-size:11px">A1B2C3D4</strong></div>
+          <div class="rrow"><span>Transaction ID</span><strong style="font-family:monospace;font-size:11px">TXN8F3A2</strong></div>
+          <div class="rrow"><span>New Balance</span><strong class="hi" id="rcptBal">₹400.00</strong></div>
+        </div>
+      </div>
+      <button class="btn-done" onclick="goTo('wallet')">Done</button>
+      <button class="btn-again" onclick="goTo('pay')">Pay Again</button>
+    </div>
+  </div>
+
+  <!-- ══════════════ HISTORY ══════════════ -->
+  <div class="screen" id="s-history">
+    <div class="toolbar"><h2>Transaction History</h2></div>
+    <div class="scrollable">
+      <div class="sum-strip fade-up">
+        <div class="sum-item"><div class="s-ico" style="color:var(--sp-orange)">↑</div><div><div class="s-lbl">Total Spent</div><div class="s-val d">₹150.00</div></div></div>
+        <div class="sum-div"></div>
+        <div class="sum-item"><div class="s-ico" style="color:var(--sp-teal)">↓</div><div><div class="s-lbl">Topped Up</div><div class="s-val c">₹200.00</div></div></div>
+      </div>
+      <div class="filters">
+        <div class="ftab active">All</div><div class="ftab">Payments</div><div class="ftab">Top-Ups</div>
+      </div>
+      <div class="txn-card"><div class="txn-left"><div class="txn-ico d" style="width:42px;height:42px;border-radius:12px;display:flex;align-items:center;justify-content:center">↑</div><div><div class="txn-desc">Lunch Combo</div><div class="txn-meta">School Canteen · 09:41</div></div></div><div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px"><div class="txn-amt d">-₹50.00</div><div class="sp-chip d">Debit</div></div></div>
+      <div class="txn-card"><div class="txn-left"><div class="txn-ico c" style="width:42px;height:42px;border-radius:12px;display:flex;align-items:center;justify-content:center">↓</div><div><div class="txn-desc">Wallet Top-Up</div><div class="txn-meta">Parent Top-Up · 28 Jun</div></div></div><div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px"><div class="txn-amt c">+₹200.00</div><div class="sp-chip c">Credit</div></div></div>
+      <div class="txn-card"><div class="txn-left"><div class="txn-ico d" style="width:42px;height:42px;border-radius:12px;display:flex;align-items:center;justify-content:center">↑</div><div><div class="txn-desc">Library Fine</div><div class="txn-meta">Library · 27 Jun</div></div></div><div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px"><div class="txn-amt d">-₹20.00</div><div class="sp-chip d">Debit</div></div></div>
+      <div class="txn-card"><div class="txn-left"><div class="txn-ico d" style="width:42px;height:42px;border-radius:12px;display:flex;align-items:center;justify-content:center">↑</div><div><div class="txn-desc">Annual Day Ticket</div><div class="txn-meta">Events · 25 Jun</div></div></div><div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px"><div class="txn-amt d">-₹80.00</div><div class="sp-chip d">Debit</div></div></div>
+      <div style="height:16px"></div>
+    </div>
+    <div class="tab-bar">
+      <button class="tab-btn" onclick="goTo('wallet')"><svg viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M16 12h2"/></svg>Wallet</button>
+      <div class="pay-fab-wrap"><button class="pay-fab" onclick="goTo('pay')"><svg viewBox="0 0 24 24"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="white"/></svg></button></div>
+      <button class="tab-btn active" onclick="goTo('history')"><svg viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="3" cy="6" r="1" fill="currentColor"/><circle cx="3" cy="12" r="1" fill="currentColor"/><circle cx="3" cy="18" r="1" fill="currentColor"/></svg>History</button>
+    </div>
+  </div>
+
+  <!-- ══════════════ NFC TAG MANAGEMENT ══════════════ -->
+  <div class="screen" id="s-nfc">
+    <div class="toolbar">
+      <h2>NFC Tags</h2>
+      <button class="toolbar-btn" onclick="showModal('addNfc')">+ Add</button>
+    </div>
+    <div class="scrollable">
+      <div class="nfc-stats">
+        <div class="ns-item"><div class="ns-dot on"></div>3 Active</div>
+        <div class="ns-item"><div class="ns-dot off"></div>1 Inactive</div>
+        <div class="ns-item">📶 4 Total</div>
+      </div>
+
+      <!-- Card 1 — Active -->
+      <div class="nfc-tag-card fade-up">
+        <div class="ntc-header">
+          <div class="uid-pill on">📶 A1B2C3D4</div>
+          <div class="ntc-actions">
+            <button class="act-btn warn">Deactivate</button>
+            <button class="act-btn danger">🗑</button>
+          </div>
+        </div>
+        <div class="ntc-student">
+          <div class="ntc-av">AM</div>
+          <div>
+            <div class="ntc-name">Arjun Menon</div>
+            <div class="ntc-meta">10-A · arjun@student.school</div>
+          </div>
+          <div class="ntc-bal"><div class="nb-lbl">Balance</div><div class="nb-val">₹450.00</div></div>
+        </div>
+        <div class="ntc-quick">
+          <div class="nq-btn" onclick="showModal('cardHistory')"><span>📋</span>History</div>
+          <div class="nq-btn" onclick="showModal('topup')"><span>➕</span>Top Up</div>
+          <div class="nq-btn"><span>📋</span>Copy UID</div>
+        </div>
+      </div>
+
+      <!-- Card 2 — Active -->
+      <div class="nfc-tag-card fade-up">
+        <div class="ntc-header">
+          <div class="uid-pill on">📶 F4E3D2C1</div>
+          <div class="ntc-actions">
+            <button class="act-btn warn">Deactivate</button>
+            <button class="act-btn danger">🗑</button>
+          </div>
+        </div>
+        <div class="ntc-student">
+          <div class="ntc-av">PN</div>
+          <div>
+            <div class="ntc-name">Priya Nair</div>
+            <div class="ntc-meta">9-B · priya@student.school</div>
+          </div>
+          <div class="ntc-bal"><div class="nb-lbl">Balance</div><div class="nb-val">₹320.00</div></div>
+        </div>
+        <div class="ntc-quick">
+          <div class="nq-btn" onclick="showModal('cardHistory')"><span>📋</span>History</div>
+          <div class="nq-btn" onclick="showModal('topup')"><span>➕</span>Top Up</div>
+          <div class="nq-btn"><span>📋</span>Copy UID</div>
+        </div>
+      </div>
+
+      <!-- Card 3 — Inactive -->
+      <div class="nfc-tag-card fade-up">
+        <div class="ntc-header">
+          <div class="uid-pill off">📶 B9A8C7D6</div>
+          <div class="ntc-actions">
+            <button class="act-btn" style="background:var(--sp-teal-light);color:var(--sp-teal)">Activate</button>
+            <button class="act-btn danger">🗑</button>
+          </div>
+        </div>
+        <div class="ntc-student">
+          <div class="ntc-av">RS</div>
+          <div>
+            <div class="ntc-name">Rahul Sharma</div>
+            <div class="ntc-meta">11-C · rahul@student.school</div>
+          </div>
+          <div class="ntc-bal"><div class="nb-lbl">Balance</div><div class="nb-val">₹90.00</div></div>
+        </div>
+        <div class="ntc-quick">
+          <div class="nq-btn"><span>📋</span>History</div>
+          <div class="nq-btn" onclick="showModal('topup')"><span>➕</span>Top Up</div>
+          <div class="nq-btn"><span>📋</span>Copy UID</div>
+        </div>
+      </div>
+      <div style="height:16px"></div>
+    </div>
+    <div class="tab-bar">
+      <button class="tab-btn" onclick="goTo('wallet')"><svg viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M16 12h2"/></svg>Wallet</button>
+      <button class="tab-btn active" onclick="goTo('nfc')"><svg viewBox="0 0 24 24"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="currentColor"/></svg>NFC Tags</button>
+      <button class="tab-btn" onclick="goTo('students')"><svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>Students</button>
+      <button class="tab-btn" onclick="goTo('admin')"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>Admin</button>
+    </div>
+  </div>
+
+  <!-- ══════════════ STUDENTS ══════════════ -->
+  <div class="screen" id="s-students">
+    <div class="toolbar"><h2>Students</h2><button class="toolbar-btn" onclick="showModal('addStudent')">+ Add</button></div>
+    <div class="scrollable">
+      <div style="padding:12px 12px 4px">
+        <input class="finput" placeholder="🔍 Search students..." style="margin:0;font-size:13px"/>
+      </div>
+      <div class="stu-card fade-up">
+        <div class="stu-av">AM</div>
+        <div class="stu-inf">
+          <div class="stu-name">Arjun Menon</div>
+          <div class="stu-meta">10-A · arjun@student.school</div>
+          <span class="stu-badge nfc">📶 A1B2C3D4</span>
+        </div>
+        <div class="stu-bal"><div class="sb-lbl">Balance</div><div class="sb-val">₹450.00</div></div>
+      </div>
+      <div class="stu-card fade-up">
+        <div class="stu-av">PN</div>
+        <div class="stu-inf">
+          <div class="stu-name">Priya Nair</div>
+          <div class="stu-meta">9-B · priya@student.school</div>
+          <span class="stu-badge nfc">📶 F4E3D2C1</span>
+        </div>
+        <div class="stu-bal"><div class="sb-lbl">Balance</div><div class="sb-val">₹320.00</div></div>
+      </div>
+      <div class="stu-card fade-up">
+        <div class="stu-av">RS</div>
+        <div class="stu-inf">
+          <div class="stu-name">Rahul Sharma</div>
+          <div class="stu-meta">11-C · rahul@student.school</div>
+          <span class="stu-badge none">No NFC card</span>
+        </div>
+        <div class="stu-bal"><div class="sb-lbl">Balance</div><div class="sb-val">₹90.00</div></div>
+      </div>
+      <div class="stu-card fade-up">
+        <div class="stu-av">SM</div>
+        <div class="stu-inf">
+          <div class="stu-name">Sara Mathew</div>
+          <div class="stu-meta">8-A · sara@student.school</div>
+          <span class="stu-badge nfc">📶 C5D6E7F8</span>
+        </div>
+        <div class="stu-bal"><div class="sb-lbl">Balance</div><div class="sb-val">₹175.00</div></div>
+      </div>
+      <div style="height:16px"></div>
+    </div>
+    <div class="tab-bar">
+      <button class="tab-btn" onclick="goTo('wallet')"><svg viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M16 12h2"/></svg>Wallet</button>
+      <button class="tab-btn" onclick="goTo('nfc')"><svg viewBox="0 0 24 24"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="currentColor"/></svg>NFC Tags</button>
+      <button class="tab-btn active" onclick="goTo('students')"><svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>Students</button>
+      <button class="tab-btn" onclick="goTo('admin')"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>Admin</button>
+    </div>
+  </div>
+
+  <!-- ══════════════ ADMIN ══════════════ -->
+  <div class="screen" id="s-admin">
+    <div class="toolbar"><button class="toolbar-btn" onclick="goTo('wallet')">← Back</button><h2>Admin Panel</h2><span></span></div>
+    <div class="scrollable">
+      <div class="stats-grid fade-up">
+        <div class="sc p"><div class="sc-val">42</div><div class="sc-lbl">Students</div></div>
+        <div class="sc t"><div class="sc-val">38</div><div class="sc-lbl">Active NFC Cards</div></div>
+        <div class="sc o"><div class="sc-val">₹8,240</div><div class="sc-lbl">Total Revenue</div></div>
+        <div class="sc y"><div class="sc-val">17</div><div class="sc-lbl">Today's Txns</div></div>
+      </div>
+      <div class="sec-title">Quick Top-Up</div>
+      <div class="sp-card-sm">
+        <div class="flabel">Student ID</div>
+        <input class="finput" value="stu-001" style="margin-bottom:10px"/>
+        <div class="flabel">Amount (₹)</div>
+        <input class="finput" type="number" placeholder="Enter amount" style="margin-bottom:10px"/>
+        <button class="btn-primary" style="background:var(--sp-teal)">Top Up Wallet</button>
+      </div>
+      <div class="sec-title">Transaction Log</div>
+      <div class="log-row"><div class="log-left"><div class="log-ico d">↑</div><div><div class="log-name">Arjun Menon (10-A)</div><div class="log-desc">Lunch Combo · School Canteen · A1B2C3D4</div></div></div><div class="log-amt d">-₹50.00</div></div>
+      <div class="log-row"><div class="log-left"><div class="log-ico c">↓</div><div><div class="log-name">Priya Nair (9-B)</div><div class="log-desc">Wallet Top-Up · Parent Top-Up · F4E3D2C1</div></div></div><div class="log-amt c">+₹300.00</div></div>
+      <div class="log-row"><div class="log-left"><div class="log-ico d">↑</div><div><div class="log-name">Rahul Sharma (11-C)</div><div class="log-desc">Library Fine · Library</div></div></div><div class="log-amt d">-₹20.00</div></div>
+      <div class="log-row"><div class="log-left"><div class="log-ico d">↑</div><div><div class="log-name">Sara Mathew (8-A)</div><div class="log-desc">Annual Day Ticket · Events · C5D6E7F8</div></div></div><div class="log-amt d">-₹80.00</div></div>
+      <div style="height:16px"></div>
+    </div>
+    <div class="tab-bar">
+      <button class="tab-btn" onclick="goTo('wallet')"><svg viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M16 12h2"/></svg>Wallet</button>
+      <button class="tab-btn" onclick="goTo('nfc')"><svg viewBox="0 0 24 24"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="currentColor"/></svg>NFC Tags</button>
+      <button class="tab-btn" onclick="goTo('students')"><svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>Students</button>
+      <button class="tab-btn active" onclick="goTo('admin')"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>Admin</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ MODALS ══ -->
+
+<!-- Add NFC modal -->
+<div class="modal-overlay" id="modal-addNfc" onclick="closeModal(event,'addNfc')">
+  <div class="modal-sheet" onclick="event.stopPropagation()">
+    <div class="modal-handle"></div>
+    <button class="modal-close" onclick="hideModal('addNfc')">✕ Close</button>
+    <div class="modal-title">📶 Add NFC Tag</div>
+    <div style="background:var(--sp-purple-light);border-radius:14px;padding:14px;display:flex;align-items:center;gap:12px;margin-bottom:18px;cursor:pointer" onclick="simulateScan()">
+      <div id="scanIconModal" style="width:50px;height:50px;border-radius:50%;background:var(--sp-purple);display:flex;align-items:center;justify-content:center;font-size:24px;color:white;flex-shrink:0">📶</div>
+      <div><div style="font-size:14px;font-weight:700" id="scanModalTitle">Tap to Scan NFC Card</div><div style="font-size:12px;color:var(--sp-sub);margin-top:3px">Hold card near device to read UID</div></div>
+    </div>
+    <div style="text-align:center;color:var(--sp-sub);font-size:12px;margin:0 0 14px;display:flex;align-items:center;gap:8px"><div style="flex:1;height:1px;background:var(--sp-border)"></div>or enter manually<div style="flex:1;height:1px;background:var(--sp-border)"></div></div>
+    <div class="flabel">Card UID</div>
+    <input class="finput" id="newUidInput" placeholder="e.g. A1B2C3D4"/>
+    <div class="flabel">Student ID</div>
+    <input class="finput" placeholder="e.g. stu-001"/>
+    <button class="btn-primary" onclick="hideModal('addNfc')">Link Card to Student</button>
+  </div>
+</div>
+
+<!-- Top-up modal -->
+<div class="modal-overlay" id="modal-topup" onclick="closeModal(event,'topup')">
+  <div class="modal-sheet" onclick="event.stopPropagation()">
+    <div class="modal-handle"></div>
+    <button class="modal-close" onclick="hideModal('topup')">✕ Close</button>
+    <div class="modal-title">💰 Top Up Wallet</div>
+    <div style="background:var(--sp-purple-light);color:var(--sp-purple);border-radius:12px;padding:12px 16px;font-size:14px;text-align:center;margin-bottom:16px">
+      <strong>Arjun Menon</strong> · Current Balance: <strong>₹450.00</strong>
+    </div>
+    <div class="flabel">Amount to Add (₹)</div>
+    <input class="finput" type="number" placeholder="0" id="topupAmtInput"/>
+    <div class="chip-row" style="margin-bottom:16px">
+      <div class="amt-chip" onclick="setTopupAmt(50,this)">₹50</div>
+      <div class="amt-chip" onclick="setTopupAmt(100,this)">₹100</div>
+      <div class="amt-chip" onclick="setTopupAmt(200,this)">₹200</div>
+      <div class="amt-chip" onclick="setTopupAmt(500,this)">₹500</div>
+    </div>
+    <div class="flabel">Note (optional)</div>
+    <input class="finput" placeholder="e.g. Weekly allowance"/>
+    <button class="btn-primary" style="background:var(--sp-teal)" onclick="doTopupDemo()">Add to Wallet</button>
+    <p id="topupSuccessMsg" style="display:none;color:var(--sp-teal);font-size:13px;font-weight:600;text-align:center;margin-top:10px"></p>
+  </div>
+</div>
+
+<!-- Card history modal -->
+<div class="modal-overlay" id="modal-cardHistory" onclick="closeModal(event,'cardHistory')">
+  <div class="modal-sheet" onclick="event.stopPropagation()">
+    <div class="modal-handle"></div>
+    <button class="modal-close" onclick="hideModal('cardHistory')">✕ Close</button>
+    <div class="modal-title">Arjun Menon — Card History</div>
+    <div style="background:var(--sp-purple-light);color:var(--sp-purple);padding:8px 14px;border-radius:10px;font-size:12px;font-weight:700;font-family:monospace;margin-bottom:14px">📶 UID: A1B2C3D4</div>
+    <div class="txn-row-w"><div class="txn-ico d">↑</div><div class="txn-info"><div class="txn-desc">Lunch Combo</div><div class="txn-meta">School Canteen · 29 Jun 09:41</div></div><div class="txn-amt d">-₹50.00</div></div>
+    <div class="txn-row-w"><div class="txn-ico c">↓</div><div class="txn-info"><div class="txn-desc">Wallet Top-Up</div><div class="txn-meta">Parent Top-Up · 28 Jun</div></div><div class="txn-amt c">+₹200.00</div></div>
+    <div class="txn-row-w"><div class="txn-ico d">↑</div><div class="txn-info"><div class="txn-desc">Library Fine</div><div class="txn-meta">Library · 27 Jun</div></div><div class="txn-amt d">-₹20.00</div></div>
+    <div class="txn-row-w"><div class="txn-ico d">↑</div><div class="txn-info"><div class="txn-desc">Annual Day Ticket</div><div class="txn-meta">Events · 25 Jun</div></div><div class="txn-amt d">-₹80.00</div></div>
+  </div>
+</div>
+
+<!-- Add student modal -->
+<div class="modal-overlay" id="modal-addStudent" onclick="closeModal(event,'addStudent')">
+  <div class="modal-sheet" onclick="event.stopPropagation()">
+    <div class="modal-handle"></div>
+    <button class="modal-close" onclick="hideModal('addStudent')">✕ Close</button>
+    <div class="modal-title">👨‍🎓 Add Student</div>
+    <div class="flabel">Full Name</div><input class="finput" placeholder="e.g. Priya Nair"/>
+    <div class="flabel">Email</div><input class="finput" type="email" placeholder="priya@student.school"/>
+    <div class="flabel">Class / Grade</div><input class="finput" placeholder="e.g. 10-B"/>
+    <div class="flabel">PIN (4 digits)</div><input class="finput" type="password" maxlength="4" placeholder="Set a PIN"/>
+    <div class="flabel">Starting Balance (₹)</div><input class="finput" type="number" placeholder="0"/>
+    <button class="btn-primary" onclick="hideModal('addStudent')">Create Student Account</button>
+  </div>
+</div>
+
+<script>
+function goTo(s){
+  document.querySelectorAll('.screen').forEach(el=>el.classList.remove('active'));
+  document.getElementById('s-'+s).classList.add('active');
+  document.querySelectorAll('.np').forEach(el=>el.classList.remove('active'));
+  document.querySelectorAll('.np').forEach(el=>{ if(el.textContent.toLowerCase().includes(s)||el.onclick?.toString().includes("'"+s+"'")) el.classList.add('active'); });
+}
+function showModal(id){ document.getElementById('modal-'+id).classList.add('open'); }
+function hideModal(id){ document.getElementById('modal-'+id).classList.remove('open'); }
+function closeModal(e,id){ if(e.target===document.getElementById('modal-'+id)) hideModal(id); }
+
+function setAmt(v,el){ document.getElementById('amount').value=v; document.querySelectorAll('.amt-chip').forEach(c=>c.classList.remove('active')); el.classList.add('active'); }
+function setTopupAmt(v,el){ document.getElementById('topupAmtInput').value=v; document.querySelectorAll('#modal-topup .amt-chip').forEach(c=>c.classList.remove('active')); el.classList.add('active'); }
+
+function startScan(){
+  const amt=document.getElementById('amount').value;
+  if(!amt||Number(amt)<=0){alert('Enter an amount first');return;}
+  const ring=document.getElementById('nfcRing');
+  const title=document.getElementById('scanTitle');
+  const sub=document.getElementById('scanSub');
+  ring.classList.add('pulsing');
+  title.textContent='Scanning...';
+  sub.textContent='Hold your NFC student card near the device';
+  setTimeout(()=>{
+    ring.classList.remove('pulsing');
+    title.textContent='✅ Card Detected!';
+    sub.textContent='UID: A1B2C3D4 — Arjun Menon';
+    document.getElementById('pinMerchant').textContent=document.getElementById('merchant').value||'School';
+    document.getElementById('pinAmt').textContent='₹'+Number(amt).toFixed(2);
+    setTimeout(()=>goTo('pin'),700);
+  },2000);
+}
+
+let pinEntered='';
+function pk(key){
+  if(key==='del'){pinEntered=pinEntered.slice(0,-1);}
+  else if(key==='ok'){verifyPin();return;}
+  else if(pinEntered.length<4){pinEntered+=key;}
+  if(pinEntered.length===4){setTimeout(verifyPin,120);return;}
+  updateDots();
+}
+function updateDots(){
+  for(let i=0;i<4;i++) document.getElementById('d'+i).className='dot'+(i<pinEntered.length?' filled':'');
+}
+function verifyPin(){
+  if(pinEntered.length<4)return;
+  if(pinEntered==='5678'){
+    const amt=Number(document.getElementById('amount')?.value||50);
+    const bal=450-amt;
+    document.getElementById('rcptAmt').textContent='₹'+amt.toFixed(2);
+    document.getElementById('rcptMerchant').textContent=document.getElementById('merchant')?.value||'School';
+    document.getElementById('rcptDesc').textContent=document.getElementById('desc')?.value||'Payment';
+    document.getElementById('rcptBal').textContent='₹'+bal.toFixed(2);
+    document.getElementById('walletBal').textContent='₹'+bal.toFixed(2);
+    document.getElementById('rcptDate').textContent=new Date().toLocaleString('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});
+    pinEntered='';updateDots();
+    goTo('receipt');
+  } else {
+    alert('❌ Wrong PIN!\n\nHint: demo PIN is 5678');
+    pinEntered='';updateDots();
+  }
+}
+
+function simulateScan(){
+  const icon=document.getElementById('scanIconModal');
+  const title=document.getElementById('scanModalTitle');
+  icon.style.animation='pulse 1s ease-in-out 3';
+  title.textContent='Scanning...';
+  setTimeout(()=>{
+    document.getElementById('newUidInput').value='A1B2C3D4';
+    title.textContent='✅ UID: A1B2C3D4 detected!';
+  },2000);
+}
+
+function doTopupDemo(){
+  const amt=document.getElementById('topupAmtInput').value;
+  if(!amt||Number(amt)<=0){alert('Enter an amount');return;}
+  const msg=document.getElementById('topupSuccessMsg');
+  msg.style.display='block';
+  msg.textContent='✅ ₹'+Number(amt).toFixed(2)+' added! New balance: ₹'+(450+Number(amt)).toFixed(2);
+  setTimeout(()=>hideModal('topup'),2000);
+}
+</script>
+</body>
+</html>
