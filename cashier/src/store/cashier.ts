@@ -25,13 +25,12 @@ export const useCashierStore = defineStore('cashier', () => {
   const scannedUid      = ref('');
   const scannedStudent  = ref<Student | null>(null);
   const pendingAmount   = ref(0);
-  const pendingMerchant = ref('');
   const pendingDesc     = ref('');
   const lastTransaction = ref<Transaction | null>(null);
 
   async function login(email: string, pin: string) {
     const { data } = await api.post('/auth/login', { email, pin });
-    if (data.student.role !== 'admin') throw new Error('Cashier must be an admin account');
+    if (data.student.role !== 'shop_owner') throw new Error('Cashier must be a shop owner account');
     token.value   = data.token;
     cashier.value = data.student;
     localStorage.setItem('cashier_token', data.token);
@@ -45,10 +44,9 @@ export const useCashierStore = defineStore('cashier', () => {
     localStorage.removeItem('cashier_user');
   }
 
-  function setPending(amount: number, merchant: string, desc: string) {
-    pendingAmount.value   = amount;
-    pendingMerchant.value = merchant;
-    pendingDesc.value     = desc;
+  function setPending(amount: number, desc: string) {
+    pendingAmount.value = amount;
+    pendingDesc.value   = desc;
   }
 
   function setScanned(uid: string, student: Student) {
@@ -61,17 +59,16 @@ export const useCashierStore = defineStore('cashier', () => {
   }
 
   function reset() {
-    scannedUid.value      = '';
-    scannedStudent.value  = null;
-    pendingAmount.value   = 0;
-    pendingMerchant.value = '';
-    pendingDesc.value     = '';
+    scannedUid.value     = '';
+    scannedStudent.value = null;
+    pendingAmount.value  = 0;
+    pendingDesc.value    = '';
   }
 
   return {
     token, cashier,
     scannedUid, scannedStudent,
-    pendingAmount, pendingMerchant, pendingDesc,
+    pendingAmount, pendingDesc,
     lastTransaction,
     login, logout, setPending, setScanned, setLastTransaction, reset,
   };

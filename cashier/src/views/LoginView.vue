@@ -42,11 +42,6 @@
         </ion-button>
 
         <p v-if="errorMsg" class="error-msg">{{ errorMsg }}</p>
-
-        <div class="demo-hint">
-          <ion-icon :icon="informationCircleOutline" />
-          <span>Demo: <strong>admin@studpay.school</strong> / PIN <strong>1234</strong></span>
-        </div>
       </div>
     </ion-content>
   </ion-page>
@@ -56,13 +51,13 @@
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { IonPage, IonContent, IonInput, IonButton, IonSpinner, IonIcon } from '@ionic/vue';
-import { terminalOutline, informationCircleOutline } from 'ionicons/icons';
+import { terminalOutline } from 'ionicons/icons';
 import { useCashierStore } from '@/store/cashier';
 
 const router   = useRouter();
 const store    = useCashierStore();
-const email    = ref('admin@studpay.school');
-const pin      = ref('1234');
+const email    = ref('');
+const pin      = ref('');
 const loading  = ref(false);
 const errorMsg = ref('');
 
@@ -126,11 +121,5 @@ async function doLogin() {
 
 .error-msg {
   color: var(--c-orange); font-size: 13px; text-align: center; margin-top: 10px;
-}
-
-.demo-hint {
-  display: flex; align-items: center; gap: 6px;
-  justify-content: center; margin-top: 20px;
-  font-size: 12px; color: var(--c-subtext);
 }
 </style>

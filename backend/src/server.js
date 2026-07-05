@@ -6,13 +6,18 @@ const { initDB } = require('./db/schema');
 const authRoutes     = require('./routes/auth');
 const walletRoutes   = require('./routes/wallet');
 const nfcRoutes      = require('./routes/nfc');
-const adminRoutes    = require('./routes/admin');
+const shopRoutes     = require('./routes/shop');
 const studentsRoutes = require('./routes/students');
 const parentRoutes   = require('./routes/parent');
 
 const app = express();
 
-app.use(cors());
+app.use(cors({
+  origin: process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(',')
+    : true,
+  credentials: true,
+}));
 app.use(express.json());
 
 // Health check
@@ -22,7 +27,7 @@ app.get('/health', (_, res) => res.json({ status: 'ok', app: 'StudPay API' }));
 app.use('/auth',     authRoutes);
 app.use('/wallet',   walletRoutes);
 app.use('/nfc',      nfcRoutes);
-app.use('/admin',    adminRoutes);
+app.use('/shop',     shopRoutes);
 app.use('/students', studentsRoutes);
 app.use('/parent',   parentRoutes);
 

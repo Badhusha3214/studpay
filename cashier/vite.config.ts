@@ -7,7 +7,6 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
-      '@capgo/capacitor-nfc': path.resolve(__dirname, './src/composables/nfc-stub.ts'),
     },
   },
   server: {

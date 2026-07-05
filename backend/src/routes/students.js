@@ -2,10 +2,10 @@ const router = require('express').Router();
 const bcrypt = require('bcrypt');
 const { v4: uuidv4 } = require('uuid');
 const { db } = require('../db/schema');
-const { authMiddleware, adminMiddleware } = require('../middleware/auth');
+const { authMiddleware, shopOwnerMiddleware } = require('../middleware/auth');
 
 // GET /students — list all students with card info
-router.get('/', authMiddleware, adminMiddleware, (req, res) => {
+router.get('/', authMiddleware, shopOwnerMiddleware, (req, res) => {
   const students = db.prepare(`
     SELECT s.id, s.name, s.email, s.class, s.balance, s.role, s.created_at,
            c.uid AS card_uid, c.active AS card_active, c.id AS card_id
@@ -49,7 +49,7 @@ router.get('/:id', authMiddleware, (req, res) => {
 });
 
 // POST /students — create new student
-router.post('/', authMiddleware, adminMiddleware, (req, res) => {
+router.post('/', authMiddleware, shopOwnerMiddleware, (req, res) => {
   const { name, email, class: cls, pin, balance = 0 } = req.body;
   if (!name || !email || !cls || !pin) {
     return res.status(400).json({ error: 'name, email, class, pin are required' });
@@ -70,7 +70,7 @@ router.post('/', authMiddleware, adminMiddleware, (req, res) => {
 });
 
 // PUT /students/:id — update student info
-router.put('/:id', authMiddleware, adminMiddleware, (req, res) => {
+router.put('/:id', authMiddleware, shopOwnerMiddleware, (req, res) => {
   const { name, email, class: cls } = req.body;
   db.prepare(`
     UPDATE students SET name = COALESCE(?, name), email = COALESCE(?, email), class = COALESCE(?, class)
@@ -80,7 +80,7 @@ router.put('/:id', authMiddleware, adminMiddleware, (req, res) => {
 });
 
 // DELETE /students/:id — remove student (soft: deactivate all cards)
-router.delete('/:id', authMiddleware, adminMiddleware, (req, res) => {
+router.delete('/:id', authMiddleware, shopOwnerMiddleware, (req, res) => {
   db.prepare('UPDATE cards SET active = 0 WHERE student_id = ?').run(req.params.id);
   db.prepare('DELETE FROM students WHERE id = ?').run(req.params.id);
   res.json({ message: 'Student removed' });

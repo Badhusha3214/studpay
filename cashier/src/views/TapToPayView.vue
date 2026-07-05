@@ -2,8 +2,11 @@
   <ion-page>
     <ion-header class="ion-no-border">
       <ion-toolbar>
-        <ion-title>Cashier Terminal</ion-title>
+        <ion-title>{{ store.cashier?.merchant_name || 'Cashier Terminal' }}</ion-title>
         <ion-buttons slot="end">
+          <ion-button @click="router.push('/dashboard')">
+            <ion-icon :icon="statsChartOutline" slot="icon-only" />
+          </ion-button>
           <ion-button @click="logout">
             <ion-icon :icon="logOutOutline" slot="icon-only" />
           </ion-button>
@@ -23,12 +26,9 @@
         <p class="scan-sub">{{ scanning ? 'Ask student to tap their ID card' : 'Enter amount then scan student ID' }}</p>
       </div>
 
-      <!-- Amount + merchant -->
+      <!-- Amount + description -->
       <div class="c-card fade-up">
-        <p class="field-label">Merchant / Location</p>
-        <ion-input v-model="merchant" placeholder="e.g. School Canteen" class="c-input-inline" />
-
-        <p class="field-label" style="margin-top:16px">Description</p>
+        <p class="field-label">Description</p>
         <ion-input v-model="description" placeholder="e.g. Lunch combo" class="c-input-inline" />
 
         <p class="field-label" style="margin-top:16px">Amount (₹)</p>
@@ -69,17 +69,16 @@ import {
   IonPage, IonHeader, IonToolbar, IonTitle, IonButtons, IonButton,
   IonContent, IonInput, IonIcon,
 } from '@ionic/vue';
-import { wifiOutline, logOutOutline } from 'ionicons/icons';
+import { wifiOutline, logOutOutline, statsChartOutline } from 'ionicons/icons';
 import { useNfc } from '@/composables/useNfc';
 import { useCashierStore } from '@/store/cashier';
 import api from '@/composables/useApi';
 
 const router  = useRouter();
 const store   = useCashierStore();
-const { scanning, startScan } = useNfc();
+const { scanning, startScan, error: nfcError } = useNfc();
 
 const amount      = ref('');
-const merchant    = ref('School Canteen');
 const description = ref('');
 const statusMsg   = ref('');
 const statusClass = ref('');
@@ -95,7 +94,7 @@ async function startScanFlow() {
     const { data } = await api.post('/nfc/lookup', { uid });
     const student = data.student;
 
-    store.setPending(Number(amount.value), merchant.value, description.value || 'Payment');
+    store.setPending(Number(amount.value), description.value || 'Payment');
     store.setScanned(uid, {
       name: student.name,
       class: student.class,
@@ -108,7 +107,7 @@ async function startScanFlow() {
 
     setTimeout(() => router.push('/pin'), 600);
   } catch (e: any) {
-    statusMsg.value   = e?.response?.data?.error || 'Card not found or scan failed';
+    statusMsg.value   = e?.response?.data?.error || nfcError.value || 'Card not found or scan failed';
     statusClass.value = 'error';
   }
 }

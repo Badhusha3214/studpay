@@ -92,7 +92,7 @@ async function confirm() {
       pin:         entered.value,
       amount:      store.pendingAmount,
       description: store.pendingDesc,
-      merchant:    store.pendingMerchant,
+      merchant:    store.cashier?.merchant_name,
     });
 
     store.setLastTransaction({

@@ -6,7 +6,7 @@
     "dev": "vite",
     "build": "vue-tsc && vite build",
     "preview": "vite preview",
-    "android": "npx cap sync android && npx cap open android"
+    "android": "vue-tsc && vite build && npx cap sync android && npx cap open android"
   },
   "dependencies": {
     "@capacitor/android": "^8.4.1",
@@ -23,7 +23,7 @@
     "vue-router": "^4.3.0"
   },
   "devDependencies": {
-    "@capacitor/cli": "^6.0.0",
+    "@capacitor/cli": "^8.4.1",
     "@vitejs/plugin-vue": "^5.0.4",
     "typescript": "^5.3.3",
     "vite": "^5.1.4",

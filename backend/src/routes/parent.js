@@ -1,10 +1,52 @@
 const router = require('express').Router();
 const { v4: uuidv4 } = require('uuid');
 const { db } = require('../db/schema');
-const { authMiddleware } = require('../middleware/auth');
+const { authMiddleware, parentMiddleware } = require('../middleware/auth');
 
-// GET /parent/child/:studentId — view child's wallet (parent uses admin token for now)
-router.get('/child/:studentId', authMiddleware, (req, res) => {
+function surnameOf(name) {
+  const parts = name.trim().split(/\s+/);
+  return parts[parts.length - 1].toLowerCase();
+}
+
+function domainOf(email) {
+  return email.split('@')[1]?.toLowerCase();
+}
+
+// Children linked to a parent by shared email domain + matching surname
+function getChildrenFor(parent) {
+  const students = db.prepare("SELECT * FROM students WHERE role = 'student'").all();
+  return students.filter(
+    (s) => domainOf(s.email) === domainOf(parent.email) && surnameOf(s.name) === surnameOf(parent.name)
+  );
+}
+
+function requireOwnChild(req, res, studentId) {
+  const parent = db.prepare('SELECT * FROM students WHERE id = ?').get(req.user.id);
+  const children = getChildrenFor(parent);
+  if (!children.some((c) => c.id === studentId)) {
+    res.status(403).json({ error: 'Not your child' });
+    return null;
+  }
+  return children;
+}
+
+// GET /parent/children — list the caller's own children
+router.get('/children', authMiddleware, parentMiddleware, (req, res) => {
+  const parent = db.prepare('SELECT * FROM students WHERE id = ?').get(req.user.id);
+  const children = getChildrenFor(parent).map((s) => {
+    const card = db.prepare('SELECT uid, active, id FROM cards WHERE student_id = ? AND active = 1').get(s.id);
+    return {
+      id: s.id, name: s.name, email: s.email, class: s.class, balance: s.balance,
+      card_uid: card?.uid ?? null, card_active: card?.active ?? null, card_id: card?.id ?? null,
+    };
+  });
+  res.json(children);
+});
+
+// GET /parent/child/:studentId — view child's wallet (must be caller's own child)
+router.get('/child/:studentId', authMiddleware, parentMiddleware, (req, res) => {
+  if (!requireOwnChild(req, res, req.params.studentId)) return;
+
   const student = db.prepare(`
     SELECT s.id, s.name, s.email, s.class, s.balance,
            c.uid AS card_uid, c.active AS card_active, c.id AS card_id
@@ -39,12 +81,14 @@ router.get('/child/:studentId', authMiddleware, (req, res) => {
   res.json({ student, transactions: txns, byCategory, byDay });
 });
 
-// POST /parent/topup — parent tops up child wallet
-router.post('/topup', authMiddleware, (req, res) => {
+// POST /parent/topup — parent tops up their own child's wallet
+router.post('/topup', authMiddleware, parentMiddleware, (req, res) => {
   const { studentId, amount, note } = req.body;
   if (!studentId || !amount || amount <= 0) {
     return res.status(400).json({ error: 'studentId and amount required' });
   }
+
+  if (!requireOwnChild(req, res, studentId)) return;
 
   const student = db.prepare('SELECT * FROM students WHERE id = ?').get(studentId);
   if (!student) return res.status(404).json({ error: 'Student not found' });

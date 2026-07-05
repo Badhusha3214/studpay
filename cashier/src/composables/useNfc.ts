@@ -1,6 +1,9 @@
 import { ref } from 'vue';
-// @ts-ignore — aliased to nfc-stub.ts on web via vite.config.ts
-import { NFC } from '@capgo/capacitor-nfc';
+import { CapacitorNfc } from '@capgo/capacitor-nfc';
+
+// removeAllListeners() is provided at runtime by Capacitor's registerPlugin()
+// base proxy for every plugin, but isn't part of this plugin's declared interface.
+const NFC = CapacitorNfc as typeof CapacitorNfc & { removeAllListeners(): Promise<void> };
 
 export function useNfc() {
   const scanning   = ref(false);
@@ -62,15 +65,10 @@ export function useNfc() {
       });
     }
 
-    // Web simulation — 2 second delay
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        const uid        = 'A1B2C3D4';
-        scannedUid.value = uid;
-        scanning.value   = false;
-        resolve(uid);
-      }, 2000);
-    });
+    // No NFC hardware in a plain browser — there's nothing to scan.
+    scanning.value = false;
+    error.value    = 'NFC scanning requires the mobile app. Enter the card UID manually instead.';
+    throw new Error(error.value);
   }
 
   async function stopScan() {

@@ -29,6 +29,7 @@ router.post('/login', (req, res) => {
       class: student.class,
       balance: student.balance,
       role: student.role,
+      merchant_name: student.merchant_name,
     },
   });
 });

@@ -2,7 +2,7 @@ const router = require('express').Router();
 const { v4: uuidv4 } = require('uuid');
 const bcrypt = require('bcrypt');
 const { db } = require('../db/schema');
-const { authMiddleware, adminMiddleware } = require('../middleware/auth');
+const { authMiddleware, shopOwnerMiddleware } = require('../middleware/auth');
 
 // GET /wallet/balance
 router.get('/balance', authMiddleware, (req, res) => {
@@ -20,7 +20,7 @@ router.get('/history', authMiddleware, (req, res) => {
 });
 
 // POST /wallet/topup  — admin only
-router.post('/topup', authMiddleware, adminMiddleware, (req, res) => {
+router.post('/topup', authMiddleware, shopOwnerMiddleware, (req, res) => {
   const { studentId, amount } = req.body;
   if (!studentId || !amount || amount <= 0) return res.status(400).json({ error: 'Invalid request' });
 
@@ -72,7 +72,7 @@ router.post('/pay', authMiddleware, (req, res) => {
 });
 
 // POST /wallet/pay-by-nfc — cashier terminal: uid + student PIN + amount
-router.post('/pay-by-nfc', authMiddleware, adminMiddleware, (req, res) => {
+router.post('/pay-by-nfc', authMiddleware, shopOwnerMiddleware, (req, res) => {
   const { uid, pin, amount, description, merchant } = req.body;
   if (!uid || !pin || !amount || amount <= 0) {
     return res.status(400).json({ error: 'uid, pin and amount are required' });

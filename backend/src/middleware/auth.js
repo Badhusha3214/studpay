@@ -15,11 +15,18 @@ function authMiddleware(req, res, next) {
   }
 }
 
-function adminMiddleware(req, res, next) {
-  if (req.user?.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required' });
+function shopOwnerMiddleware(req, res, next) {
+  if (req.user?.role !== 'shop_owner') {
+    return res.status(403).json({ error: 'Shop owner access required' });
   }
   next();
 }
 
-module.exports = { authMiddleware, adminMiddleware };
+function parentMiddleware(req, res, next) {
+  if (req.user?.role !== 'parent') {
+    return res.status(403).json({ error: 'Parent access required' });
+  }
+  next();
+}
+
+module.exports = { authMiddleware, shopOwnerMiddleware, parentMiddleware };

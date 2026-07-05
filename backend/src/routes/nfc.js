@@ -1,10 +1,10 @@
 const router = require('express').Router();
 const { v4: uuidv4 } = require('uuid');
 const { db } = require('../db/schema');
-const { authMiddleware, adminMiddleware } = require('../middleware/auth');
+const { authMiddleware, shopOwnerMiddleware } = require('../middleware/auth');
 
 // GET /nfc/cards — list all NFC cards with student info
-router.get('/cards', authMiddleware, adminMiddleware, (req, res) => {
+router.get('/cards', authMiddleware, shopOwnerMiddleware, (req, res) => {
   const cards = db.prepare(`
     SELECT c.id, c.uid, c.active, c.linked_at,
            s.id AS student_id, s.name, s.class, s.email, s.balance
@@ -16,7 +16,7 @@ router.get('/cards', authMiddleware, adminMiddleware, (req, res) => {
 });
 
 // GET /nfc/cards/:uid — get a single card by UID
-router.get('/cards/:uid', authMiddleware, adminMiddleware, (req, res) => {
+router.get('/cards/:uid', authMiddleware, shopOwnerMiddleware, (req, res) => {
   const card = db.prepare(`
     SELECT c.id, c.uid, c.active, c.linked_at,
            s.id AS student_id, s.name, s.class, s.email, s.balance
@@ -33,7 +33,7 @@ router.get('/cards/:uid', authMiddleware, adminMiddleware, (req, res) => {
 });
 
 // POST /nfc/lookup — find student by NFC UID (merchant terminal)
-router.post('/lookup', authMiddleware, adminMiddleware, (req, res) => {
+router.post('/lookup', authMiddleware, shopOwnerMiddleware, (req, res) => {
   const { uid } = req.body;
   if (!uid) return res.status(400).json({ error: 'NFC UID required' });
 
@@ -48,7 +48,7 @@ router.post('/lookup', authMiddleware, adminMiddleware, (req, res) => {
 });
 
 // POST /nfc/register — link an NFC card UID to a student
-router.post('/register', authMiddleware, adminMiddleware, (req, res) => {
+router.post('/register', authMiddleware, shopOwnerMiddleware, (req, res) => {
   const { uid, studentId } = req.body;
   if (!uid || !studentId) return res.status(400).json({ error: 'uid and studentId required' });
 
@@ -69,7 +69,7 @@ router.post('/register', authMiddleware, adminMiddleware, (req, res) => {
 });
 
 // PATCH /nfc/cards/:id/toggle — activate or deactivate a card
-router.patch('/cards/:id/toggle', authMiddleware, adminMiddleware, (req, res) => {
+router.patch('/cards/:id/toggle', authMiddleware, shopOwnerMiddleware, (req, res) => {
   const card = db.prepare('SELECT * FROM cards WHERE id = ?').get(req.params.id);
   if (!card) return res.status(404).json({ error: 'Card not found' });
 
@@ -79,7 +79,7 @@ router.patch('/cards/:id/toggle', authMiddleware, adminMiddleware, (req, res) =>
 });
 
 // DELETE /nfc/cards/:id — remove a card permanently
-router.delete('/cards/:id', authMiddleware, adminMiddleware, (req, res) => {
+router.delete('/cards/:id', authMiddleware, shopOwnerMiddleware, (req, res) => {
   db.prepare('DELETE FROM cards WHERE id = ?').run(req.params.id);
   res.json({ message: 'Card removed' });
 });
