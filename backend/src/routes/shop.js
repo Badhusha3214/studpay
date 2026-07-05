@@ -2,18 +2,19 @@ const router = require('express').Router();
 const { db } = require('../db/schema');
 const { authMiddleware, shopOwnerMiddleware } = require('../middleware/auth');
 
-function getMerchantName(userId) {
-  return db.prepare('SELECT merchant_name FROM students WHERE id = ?').get(userId)?.merchant_name;
+async function getMerchantName(userId) {
+  const row = await db.prepare('SELECT merchant_name FROM students WHERE id = ?').get(userId);
+  return row?.merchant_name;
 }
 
 // GET /shop/stats — today's sales summary for this shop
-router.get('/stats', authMiddleware, shopOwnerMiddleware, (req, res) => {
-  const merchant = getMerchantName(req.user.id);
+router.get('/stats', authMiddleware, shopOwnerMiddleware, async (req, res) => {
+  const merchant = await getMerchantName(req.user.id);
 
-  const today = db.prepare(`
-    SELECT COUNT(*) AS count, COALESCE(SUM(amount), 0) AS revenue
+  const today = await db.prepare(`
+    SELECT COUNT(*)::int AS count, COALESCE(SUM(amount), 0) AS revenue
     FROM transactions
-    WHERE merchant = ? AND type = 'debit' AND date(created_at) = date('now')
+    WHERE merchant = ? AND type = 'debit' AND created_at::date = CURRENT_DATE
   `).get(merchant);
 
   res.json({
@@ -23,10 +24,10 @@ router.get('/stats', authMiddleware, shopOwnerMiddleware, (req, res) => {
 });
 
 // GET /shop/transactions — this shop's transaction log
-router.get('/transactions', authMiddleware, shopOwnerMiddleware, (req, res) => {
-  const merchant = getMerchantName(req.user.id);
+router.get('/transactions', authMiddleware, shopOwnerMiddleware, async (req, res) => {
+  const merchant = await getMerchantName(req.user.id);
 
-  const txns = db.prepare(`
+  const txns = await db.prepare(`
     SELECT t.*, s.name AS student_name, s.class
     FROM transactions t JOIN students s ON t.student_id = s.id
     WHERE t.merchant = ?
