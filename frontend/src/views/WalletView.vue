@@ -2,7 +2,7 @@
   <ion-page>
     <ion-header class="ion-no-border">
       <ion-toolbar>
-        <ion-title>{{ auth.isAdmin ? 'Dashboard' : 'My Wallet' }}</ion-title>
+        <ion-title>{{ auth.isParent ? 'Parent Portal' : 'My Wallet' }}</ion-title>
         <ion-buttons slot="end">
           <ion-button @click="logout">
             <ion-icon :icon="logOutOutline" slot="icon-only" />
@@ -16,83 +16,88 @@
         <ion-refresher-content />
       </ion-refresher>
 
-      <!-- ── ADMIN DASHBOARD ── -->
-      <template v-if="auth.isAdmin">
-        <div class="greeting fade-up">
-          <p class="greet-sub">School Payment System</p>
-          <h1 class="greet-title">Overview</h1>
-        </div>
-
+      <!-- ── PARENT DASHBOARD ── -->
+      <template v-if="auth.isParent">
         <div v-if="loading" class="center"><ion-spinner name="crescent" color="primary" /></div>
 
+        <div v-else-if="auth.children.length === 0" class="empty-state">
+          <ion-icon :icon="peopleOutline" />
+          <p>No linked children found for this account</p>
+        </div>
+
         <template v-else>
-          <!-- Stats -->
-          <div class="stats-grid fade-up">
-            <div class="stat-card" style="--sc:#6C63FF;--scl:#EDE9FF">
-              <ion-icon :icon="wifiOutline" class="sc-icon" />
-              <p class="sc-val">{{ stats.totalCards }}</p>
-              <p class="sc-lbl">NFC Tags</p>
+          <!-- Child switcher -->
+          <div v-if="auth.children.length > 1" class="child-switcher fade-up">
+            <div
+              v-for="c in auth.children" :key="c.id"
+              class="child-chip" :class="{ active: c.id === auth.selectedChildId }"
+              @click="selectChild(c.id)"
+            >{{ c.name }}</div>
+          </div>
+
+          <!-- Wallet card -->
+          <div class="sp-gradient-card fade-up">
+            <div class="card-top">
+              <div>
+                <p class="card-label">Available Balance</p>
+                <h1 class="balance">₹{{ auth.selectedChild?.balance?.toFixed(2) ?? '0.00' }}</h1>
+              </div>
+              <div class="avatar">{{ childInitials }}</div>
             </div>
-            <div class="stat-card" style="--sc:#00C9A7;--scl:#D6FBF5">
-              <ion-icon :icon="peopleOutline" class="sc-icon" />
-              <p class="sc-val">{{ stats.totalStudents }}</p>
-              <p class="sc-lbl">Students</p>
-            </div>
-            <div class="stat-card" style="--sc:#FF6B6B;--scl:#FFE8E8">
-              <ion-icon :icon="receiptOutline" class="sc-icon" />
-              <p class="sc-val">{{ stats.todayTransactions }}</p>
-              <p class="sc-lbl">Today</p>
-            </div>
-            <div class="stat-card" style="--sc:#F6A623;--scl:#FFF3D6">
-              <ion-icon :icon="cashOutline" class="sc-icon" />
-              <p class="sc-val">₹{{ stats.totalRevenue?.toFixed(0) ?? 0 }}</p>
-              <p class="sc-lbl">Revenue</p>
+            <div class="card-bottom">
+              <div>
+                <p class="card-label">Student</p>
+                <p class="card-value">{{ auth.selectedChild?.name }}</p>
+              </div>
+              <div>
+                <p class="card-label">Class</p>
+                <p class="card-value">{{ auth.selectedChild?.class }}</p>
+              </div>
+              <div class="nfc-badge">
+                <ion-icon :icon="wifiOutline" /> {{ auth.selectedChild?.card_uid || 'No card' }}
+              </div>
             </div>
           </div>
 
-          <!-- Quick actions -->
-          <p class="section-title">Quick Actions</p>
-          <div class="actions-row fade-up">
-            <div class="action-btn" @click="router.push('/app/nfc')">
-              <div class="ab-icon" style="background:var(--sp-purple-light);color:var(--sp-purple)">
-                <ion-icon :icon="wifiOutline" />
-              </div>
-              <span>NFC Tags</span>
+          <!-- Top up -->
+          <p class="section-title">Top Up Wallet</p>
+          <div class="sp-card fade-up topup-card">
+            <div class="amount-row">
+              <span class="rupee">₹</span>
+              <input v-model="topupAmount" type="number" placeholder="0" class="amount-input" />
             </div>
-            <div class="action-btn" @click="router.push('/app/students')">
-              <div class="ab-icon" style="background:var(--sp-teal-light);color:var(--sp-teal)">
-                <ion-icon :icon="peopleOutline" />
-              </div>
-              <span>Students</span>
+            <div class="chip-row">
+              <button
+                v-for="a in [50, 100, 200, 500]" :key="a"
+                class="chip-btn" :class="{ active: Number(topupAmount) === a }"
+                @click="topupAmount = String(a)"
+              >₹{{ a }}</button>
             </div>
-            <div class="action-btn" @click="router.push('/app/history')">
-              <div class="ab-icon" style="background:#FFE8E8;color:#FF6B6B">
-                <ion-icon :icon="listOutline" />
-              </div>
-              <span>History</span>
-            </div>
-            <div class="action-btn" @click="router.push('/app/admin')">
-              <div class="ab-icon" style="background:#FFF3D6;color:#C9860A">
-                <ion-icon :icon="settingsOutline" />
-              </div>
-              <span>Admin</span>
-            </div>
+            <button
+              class="topup-btn"
+              :disabled="!topupAmount || Number(topupAmount) <= 0 || topupLoading"
+              @click="doTopup"
+            >
+              <ion-spinner v-if="topupLoading" name="crescent" />
+              <span v-else>Add ₹{{ topupAmount || 0 }} to Wallet</span>
+            </button>
+            <p v-if="topupMsg" class="topup-msg" :class="topupMsgClass">{{ topupMsg }}</p>
           </div>
 
           <!-- Recent activity -->
           <p class="section-title">Recent Activity</p>
-          <div v-if="transactions.length === 0" class="empty-state">
+          <div v-if="childTransactions.length === 0" class="empty-state">
             <ion-icon :icon="receiptOutline" />
             <p>No transactions yet</p>
           </div>
           <div v-else>
-            <div v-for="txn in transactions.slice(0, 8)" :key="txn.id" class="txn-row fade-up">
+            <div v-for="txn in childTransactions.slice(0, 8)" :key="txn.id" class="txn-row fade-up">
               <div class="txn-icon" :class="txn.type">
                 <ion-icon :icon="txn.type === 'credit' ? arrowDownOutline : arrowUpOutline" />
               </div>
               <div class="txn-info">
-                <p class="txn-name">{{ txn.student_name }}</p>
-                <p class="txn-desc">{{ txn.description }} · {{ txn.merchant }}</p>
+                <p class="txn-name">{{ txn.description }}</p>
+                <p class="txn-desc">{{ txn.merchant }}</p>
                 <p class="txn-date">{{ formatDate(txn.created_at) }}</p>
               </div>
               <div class="txn-amt" :class="txn.type">
@@ -165,7 +170,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import {
   IonPage, IonHeader, IonToolbar, IonTitle, IonButtons, IonButton, IonContent,
@@ -173,8 +178,7 @@ import {
 } from '@ionic/vue';
 import {
   logOutOutline, wifiOutline, peopleOutline, receiptOutline,
-  listOutline, settingsOutline, cashOutline,
-  arrowUpOutline, arrowDownOutline,
+  listOutline, arrowUpOutline, arrowDownOutline,
 } from 'ionicons/icons';
 import { useAuthStore } from '@/store/auth';
 import api from '@/composables/useApi';
@@ -185,21 +189,31 @@ const student   = computed(() => auth.student);
 const initials  = computed(() =>
   student.value?.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() ?? 'SP'
 );
+const childInitials = computed(() =>
+  auth.selectedChild?.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() ?? '??'
+);
 
-const loading      = ref(false);
-const transactions = ref<any[]>([]);
-const stats        = ref({ totalStudents: 0, totalCards: 0, totalRevenue: 0, todayTransactions: 0 });
+const loading          = ref(false);
+const transactions     = ref<any[]>([]);
+const childTransactions = ref<any[]>([]);
+
+const topupAmount    = ref('');
+const topupLoading   = ref(false);
+const topupMsg       = ref('');
+const topupMsgClass  = ref('');
+
+async function loadChildDetail() {
+  if (!auth.selectedChildId) { childTransactions.value = []; return; }
+  const { data } = await api.get(`/parent/child/${auth.selectedChildId}`);
+  childTransactions.value = data.transactions;
+}
 
 async function loadData() {
   loading.value = true;
   try {
-    if (auth.isAdmin) {
-      const [sRes, tRes] = await Promise.all([
-        api.get('/admin/stats'),
-        api.get('/admin/transactions'),
-      ]);
-      stats.value        = sRes.data;
-      transactions.value = tRes.data;
+    if (auth.isParent) {
+      await auth.loadChildren();
+      await loadChildDetail();
     } else {
       const [bRes, hRes] = await Promise.all([
         api.get('/wallet/balance'),
@@ -212,6 +226,33 @@ async function loadData() {
   finally { loading.value = false; }
 }
 
+function selectChild(id: string) {
+  auth.selectedChildId = id;
+  loadChildDetail();
+}
+
+async function doTopup() {
+  if (!auth.selectedChildId) return;
+  topupLoading.value = true;
+  topupMsg.value      = '';
+  try {
+    const { data } = await api.post('/parent/topup', {
+      studentId: auth.selectedChildId,
+      amount: Number(topupAmount.value),
+    });
+    auth.updateChildBalance(auth.selectedChildId, data.newBalance);
+    topupMsg.value      = `Success! New balance: ₹${data.newBalance.toFixed(2)}`;
+    topupMsgClass.value = 'success';
+    topupAmount.value   = '';
+    await loadChildDetail();
+  } catch (e: any) {
+    topupMsg.value      = e?.response?.data?.error || 'Top-up failed';
+    topupMsgClass.value = 'error';
+  } finally {
+    topupLoading.value = false;
+  }
+}
+
 async function refresh(event: any) { await loadData(); event.target.complete(); }
 
 function logout() { auth.logout(); router.replace('/login'); }
@@ -219,6 +260,8 @@ function logout() { auth.logout(); router.replace('/login'); }
 function formatDate(dt: string) {
   return new Date(dt).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
+
+watch(() => auth.selectedChildId, () => loadChildDetail());
 
 onMounted(loadData);
 </script>
@@ -228,18 +271,41 @@ onMounted(loadData);
 .greet-sub   { font-size: 13px; color: var(--sp-subtext); margin: 0; }
 .greet-title { font-size: 28px; font-weight: 800; margin: 4px 0 0; color: var(--sp-text); }
 
-/* Stats grid */
-.stats-grid {
-  display: grid; grid-template-columns: 1fr 1fr;
-  gap: 12px; padding: 8px 16px 4px;
+/* Child switcher */
+.child-switcher { display: flex; gap: 8px; padding: 16px 16px 4px; overflow-x: auto; }
+.child-chip {
+  padding: 8px 18px; border-radius: 100px; white-space: nowrap;
+  background: white; color: var(--sp-subtext); font-size: 13px; font-weight: 600;
+  cursor: pointer; border: 2px solid transparent; box-shadow: var(--sp-shadow);
 }
-.stat-card {
-  background: var(--scl); border-radius: 18px; padding: 16px;
-  display: flex; flex-direction: column; gap: 4px;
+.child-chip.active { background: var(--sp-purple-light); color: var(--sp-purple); border-color: var(--sp-purple); }
+
+/* Top up card */
+.topup-card { margin: 4px 16px 0; padding: 16px; }
+.amount-row {
+  display: flex; align-items: center; gap: 4px;
+  background: var(--sp-bg); border-radius: 12px; padding: 0 14px;
 }
-.sc-icon { font-size: 22px; color: var(--sc); margin-bottom: 4px; }
-.sc-val  { font-size: 26px; font-weight: 800; color: var(--sc); margin: 0; }
-.sc-lbl  { font-size: 12px; color: var(--sp-subtext); margin: 0; font-weight: 600; }
+.rupee { font-size: 22px; font-weight: 700; color: var(--sp-purple); }
+.amount-input {
+  flex: 1; border: none; outline: none; background: transparent;
+  font-size: 28px; font-weight: 800; color: var(--sp-text); padding: 10px 0; width: 100%;
+}
+.chip-row { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+.chip-btn {
+  padding: 6px 16px; border-radius: 100px; border: 2px solid transparent;
+  background: var(--sp-bg); font-size: 13px; font-weight: 600;
+  color: var(--sp-subtext); cursor: pointer;
+}
+.chip-btn.active { background: var(--sp-purple-light); color: var(--sp-purple); border-color: var(--sp-purple); }
+.topup-btn {
+  width: 100%; margin-top: 16px; height: 48px; border: none; border-radius: 14px;
+  background: var(--sp-purple); color: white; font-size: 15px; font-weight: 700; cursor: pointer;
+}
+.topup-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.topup-msg { font-size: 13px; font-weight: 600; text-align: center; margin-top: 10px; }
+.topup-msg.success { color: var(--sp-teal); }
+.topup-msg.error   { color: var(--sp-orange); }
 
 /* Actions */
 .section-title {

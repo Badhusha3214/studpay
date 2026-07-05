@@ -8,14 +8,27 @@ export interface Student {
   email: string;
   class: string;
   balance: number;
-  role: 'student' | 'admin';
+  role: 'student' | 'parent' | 'shop_owner';
+}
+
+export interface Child {
+  id: string;
+  name: string;
+  email: string;
+  class: string;
+  balance: number;
+  card_uid: string | null;
 }
 
 export const useAuthStore = defineStore('auth', () => {
   const token   = ref<string | null>(localStorage.getItem('sp_token'));
   const student = ref<Student | null>(JSON.parse(localStorage.getItem('sp_student') || 'null'));
 
-  const isAdmin = computed(() => student.value?.role === 'admin');
+  const isParent = computed(() => student.value?.role === 'parent');
+
+  const children        = ref<Child[]>([]);
+  const selectedChildId = ref('');
+  const selectedChild   = computed(() => children.value.find((c) => c.id === selectedChildId.value) ?? null);
 
   async function login(email: string, pin: string) {
     const { data } = await api.post('/auth/login', { email, pin });
@@ -26,8 +39,10 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   function logout() {
-    token.value   = null;
-    student.value = null;
+    token.value           = null;
+    student.value         = null;
+    children.value        = [];
+    selectedChildId.value = '';
     localStorage.removeItem('sp_token');
     localStorage.removeItem('sp_student');
   }
@@ -39,5 +54,21 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  return { token, student, isAdmin, login, logout, updateBalance };
+  async function loadChildren() {
+    const { data } = await api.get('/parent/children');
+    children.value = data;
+    if (!selectedChildId.value && data.length) selectedChildId.value = data[0].id;
+  }
+
+  function updateChildBalance(childId: string, newBalance: number) {
+    const child = children.value.find((c) => c.id === childId);
+    if (child) child.balance = newBalance;
+  }
+
+  return {
+    token, student, isParent,
+    children, selectedChildId, selectedChild,
+    login, logout, updateBalance,
+    loadChildren, updateChildBalance,
+  };
 });

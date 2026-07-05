@@ -11,11 +11,8 @@ const routes: Array<RouteRecordRaw> = [
     meta: { requiresAuth: true },
     children: [
       { path: '', redirect: '/app/wallet' },
-      { path: 'wallet',   component: () => import('@/views/WalletView.vue') },
-      { path: 'history',  component: () => import('@/views/HistoryView.vue') },
-      { path: 'nfc',      component: () => import('@/views/NfcManageView.vue') },
-      { path: 'students', component: () => import('@/views/StudentsView.vue') },
-      { path: 'admin',    component: () => import('@/views/AdminView.vue') },
+      { path: 'wallet',  component: () => import('@/views/WalletView.vue') },
+      { path: 'history', component: () => import('@/views/HistoryView.vue') },
     ],
   },
 ];

@@ -2,7 +2,7 @@
   <ion-page>
     <ion-header class="ion-no-border">
       <ion-toolbar>
-        <ion-title>Transaction History</ion-title>
+        <ion-title>{{ auth.isParent ? `${auth.selectedChild?.name ?? ''}'s History` : 'Transaction History' }}</ion-title>
       </ion-toolbar>
     </ion-header>
 
@@ -10,6 +10,15 @@
       <ion-refresher slot="fixed" @ionRefresh="refresh($event)">
         <ion-refresher-content />
       </ion-refresher>
+
+      <!-- Child switcher -->
+      <div v-if="auth.isParent && auth.children.length > 1" class="child-switcher fade-up">
+        <div
+          v-for="c in auth.children" :key="c.id"
+          class="child-chip" :class="{ active: c.id === auth.selectedChildId }"
+          @click="auth.selectedChildId = c.id"
+        >{{ c.name }}</div>
+      </div>
 
       <!-- Summary strip -->
       <div class="summary-strip fade-up">
@@ -85,13 +94,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import {
   IonPage, IonHeader, IonToolbar, IonTitle, IonContent,
   IonIcon, IonSpinner, IonRefresher, IonRefresherContent,
 } from '@ionic/vue';
 import { arrowUpOutline, arrowDownOutline, receiptOutline } from 'ionicons/icons';
 import api from '@/composables/useApi';
+import { useAuthStore } from '@/store/auth';
+
+const auth = useAuthStore();
 
 const loading      = ref(false);
 const transactions = ref<any[]>([]);
@@ -115,8 +127,18 @@ const totalCredit = computed(() => transactions.value.filter(t => t.type === 'cr
 async function load() {
   loading.value = true;
   try {
-    const { data } = await api.get('/wallet/history');
-    transactions.value = data;
+    if (auth.isParent) {
+      await auth.loadChildren();
+      if (auth.selectedChildId) {
+        const { data } = await api.get(`/parent/child/${auth.selectedChildId}`);
+        transactions.value = data.transactions;
+      } else {
+        transactions.value = [];
+      }
+    } else {
+      const { data } = await api.get('/wallet/history');
+      transactions.value = data;
+    }
   } finally {
     loading.value = false;
   }
@@ -134,10 +156,20 @@ function formatDateTime(dt: string) {
   });
 }
 
+watch(() => auth.selectedChildId, () => { if (auth.isParent) load(); });
+
 onMounted(load);
 </script>
 
 <style scoped>
+.child-switcher { display: flex; gap: 8px; padding: 16px 16px 4px; overflow-x: auto; }
+.child-chip {
+  padding: 8px 18px; border-radius: 100px; white-space: nowrap;
+  background: white; color: var(--sp-subtext); font-size: 13px; font-weight: 600;
+  cursor: pointer; border: 2px solid transparent; box-shadow: var(--sp-shadow);
+}
+.child-chip.active { background: var(--sp-purple-light); color: var(--sp-purple); border-color: var(--sp-purple); }
+
 .summary-strip {
   display: flex; align-items: center;
   background: white;

@@ -12,22 +12,6 @@
           <ion-icon :icon="listOutline" />
           <ion-label>History</ion-label>
         </ion-tab-button>
-
-        <!-- Admin-only tabs -->
-        <ion-tab-button v-if="auth.isAdmin" tab="nfc" href="/app/nfc">
-          <ion-icon :icon="wifiOutline" />
-          <ion-label>NFC Tags</ion-label>
-        </ion-tab-button>
-
-        <ion-tab-button v-if="auth.isAdmin" tab="students" href="/app/students">
-          <ion-icon :icon="peopleOutline" />
-          <ion-label>Students</ion-label>
-        </ion-tab-button>
-
-        <ion-tab-button v-if="auth.isAdmin" tab="admin" href="/app/admin">
-          <ion-icon :icon="settingsOutline" />
-          <ion-label>Admin</ion-label>
-        </ion-tab-button>
       </ion-tab-bar>
     </ion-tabs>
   </ion-page>
@@ -38,11 +22,5 @@ import {
   IonPage, IonTabs, IonTabBar, IonTabButton,
   IonIcon, IonLabel, IonRouterOutlet,
 } from '@ionic/vue';
-import {
-  walletOutline, listOutline,
-  wifiOutline, peopleOutline, settingsOutline,
-} from 'ionicons/icons';
-import { useAuthStore } from '@/store/auth';
-
-const auth = useAuthStore();
+import { walletOutline, listOutline } from 'ionicons/icons';
 </script>

@@ -7,8 +7,6 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
-      // Stub the NFC plugin on web — Capacitor loads the real one at runtime
-      '@capgo/capacitor-nfc': path.resolve(__dirname, './src/composables/nfc-stub.ts'),
     },
   },
   server: {
