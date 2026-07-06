@@ -30,47 +30,75 @@
           <span>Allergy: {{ store.scannedStudent.allergies }}</span>
         </div>
 
-        <!-- PIN dots -->
-        <p class="pin-prompt">Student: enter your PIN to confirm</p>
-        <div class="pin-dots">
-          <div v-for="i in 4" :key="i" class="pin-dot" :class="{ filled: entered.length >= i }" />
-        </div>
+        <!-- Waiting for parent approval (junk-food hold for young students) -->
+        <template v-if="pending">
+          <div class="waiting-card fade-up">
+            <ion-spinner name="crescent" />
+            <p class="waiting-title">Waiting for Parent Approval</p>
+            <p class="waiting-sub">
+              This purchase auto-approves in {{ secondsLeft }}s unless a parent rejects it.
+            </p>
+          </div>
+        </template>
 
-        <p v-if="errorMsg" class="pin-error">{{ errorMsg }}</p>
+        <template v-else-if="rejected">
+          <div class="rejected-card fade-up">
+            <ion-icon :icon="closeCircleOutline" />
+            <p class="rejected-title">Purchase Rejected</p>
+            <p class="rejected-sub">The parent rejected this purchase. It was not charged.</p>
+            <ion-button expand="block" class="back-btn" @click="router.replace('/pay')">Back to Terminal</ion-button>
+          </div>
+        </template>
 
-        <!-- Keypad -->
-        <div class="keypad">
-          <template v-for="key in keys" :key="key">
-            <div
-              class="pin-key"
-              :class="{ danger: key === '⌫', confirm: key === '✓', empty: key === '' }"
-              @click="pressKey(key)"
-            >
-              <span>{{ key }}</span>
-            </div>
-          </template>
-        </div>
+        <template v-else>
+          <!-- PIN dots -->
+          <p class="pin-prompt">Student: enter your PIN to confirm</p>
+          <div class="pin-dots">
+            <div v-for="i in 4" :key="i" class="pin-dot" :class="{ filled: entered.length >= i }" />
+          </div>
+
+          <p v-if="errorMsg" class="pin-error">{{ errorMsg }}</p>
+
+          <!-- Keypad -->
+          <div class="keypad">
+            <template v-for="key in keys" :key="key">
+              <div
+                class="pin-key"
+                :class="{ danger: key === '⌫', confirm: key === '✓', empty: key === '' }"
+                @click="pressKey(key)"
+              >
+                <span>{{ key }}</span>
+              </div>
+            </template>
+          </div>
+        </template>
       </div>
     </ion-content>
   </ion-page>
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import {
   IonPage, IonHeader, IonToolbar, IonTitle,
-  IonButtons, IonBackButton, IonContent, IonIcon,
+  IonButtons, IonBackButton, IonContent, IonIcon, IonSpinner, IonButton,
 } from '@ionic/vue';
-import { warningOutline } from 'ionicons/icons';
+import { warningOutline, closeCircleOutline } from 'ionicons/icons';
 import { useCashierStore } from '@/store/cashier';
 import api from '@/composables/useApi';
 
-const router  = useRouter();
-const store   = useCashierStore();
+const router   = useRouter();
+const store    = useCashierStore();
 const entered  = ref('');
 const errorMsg = ref('');
 const loading  = ref(false);
+
+const pending      = ref<{ id: string; expiresAt: string } | null>(null);
+const rejected     = ref(false);
+const secondsLeft  = ref(0);
+let pollTimer: ReturnType<typeof setInterval> | null = null;
+let countdownTimer: ReturnType<typeof setInterval> | null = null;
 
 const keys = ['1','2','3','4','5','6','7','8','9','⌫','0','✓'];
 
@@ -87,6 +115,67 @@ function pressKey(key: string) {
   if (entered.value.length === 4) confirm();
 }
 
+// Cart checkouts return one row per line — collapse them into a single
+// combined summary for the receipt screen, which only shows one total.
+function applyPaymentResult(data: any) {
+  const txn = data.transactions
+    ? {
+        id: data.transactions[0].id,
+        amount: data.transactions.reduce((sum: number, t: any) => sum + t.amount, 0),
+        description: store.pendingDesc,
+        merchant: data.transactions[0].merchant,
+        balance_after: data.transactions[data.transactions.length - 1].balance_after,
+        emergency_amount: data.transactions.reduce((sum: number, t: any) => sum + (t.emergency_amount || 0), 0),
+        created_at: data.transactions[0].created_at,
+      }
+    : data.transaction;
+
+  store.setLastTransaction({
+    ...txn,
+    created_at: txn.created_at || new Date().toISOString(),
+  });
+
+  if (store.scannedStudent) {
+    store.scannedStudent.balance = data.student.newBalance;
+  }
+
+  router.replace('/receipt');
+}
+
+function stopTimers() {
+  if (pollTimer) clearInterval(pollTimer);
+  if (countdownTimer) clearInterval(countdownTimer);
+  pollTimer = null;
+  countdownTimer = null;
+}
+
+function startWaitingFor(pendingId: string, expiresAt: string) {
+  pending.value = { id: pendingId, expiresAt };
+
+  const tick = () => {
+    secondsLeft.value = Math.max(0, Math.ceil((new Date(expiresAt).getTime() - Date.now()) / 1000));
+  };
+  tick();
+  countdownTimer = setInterval(tick, 1000);
+
+  pollTimer = setInterval(async () => {
+    try {
+      const { data } = await api.get(`/wallet/pending/${pendingId}`);
+      if (data.status === 'approved') {
+        stopTimers();
+        pending.value = null;
+        applyPaymentResult(data);
+      } else if (data.status === 'rejected') {
+        stopTimers();
+        pending.value = null;
+        rejected.value = true;
+      }
+    } catch { /* transient network error — keep polling */ }
+  }, 3000);
+}
+
+onUnmounted(stopTimers);
+
 async function confirm() {
   if (entered.value.length < 4) { errorMsg.value = 'Enter 4-digit PIN'; return; }
   loading.value  = true;
@@ -98,20 +187,16 @@ async function confirm() {
       pin:         entered.value,
       amount:      store.pendingAmount,
       description: store.pendingDesc,
-      menuItemId:  store.pendingMenuItemId,
+      cart:        store.pendingCart,
       merchant:    store.cashier?.merchant_name,
     });
 
-    store.setLastTransaction({
-      ...data.transaction,
-      created_at: data.transaction.created_at || new Date().toISOString(),
-    });
-
-    if (store.scannedStudent) {
-      store.scannedStudent.balance = data.student.newBalance;
+    if (data.status === 'pending') {
+      startWaitingFor(data.pendingId, data.expiresAt);
+      return;
     }
 
-    router.replace('/receipt');
+    applyPaymentResult(data);
   } catch (e: any) {
     errorMsg.value = e?.response?.data?.error || 'Invalid PIN. Try again.';
     entered.value  = '';
@@ -164,6 +249,24 @@ async function confirm() {
   width: 100%; max-width: 380px; margin: -14px 0 20px;
 }
 .allergy-banner ion-icon { font-size: 18px; flex-shrink: 0; }
+
+.waiting-card {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  background: white; border-radius: 20px; box-shadow: var(--c-shadow);
+  padding: 32px 24px; width: 100%; max-width: 380px; text-align: center;
+}
+.waiting-title { font-size: 16px; font-weight: 800; margin: 8px 0 0; color: var(--c-text); }
+.waiting-sub   { font-size: 13px; color: var(--c-subtext); margin: 4px 0 0; }
+
+.rejected-card {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  background: white; border-radius: 20px; box-shadow: var(--c-shadow);
+  padding: 32px 24px; width: 100%; max-width: 380px; text-align: center;
+}
+.rejected-card ion-icon { font-size: 44px; color: var(--c-orange); }
+.rejected-title { font-size: 16px; font-weight: 800; margin: 8px 0 0; color: var(--c-text); }
+.rejected-sub   { font-size: 13px; color: var(--c-subtext); margin: 4px 0 16px; }
+.back-btn { --background: var(--c-green); --border-radius: 12px; width: 100%; }
 
 .keypad {
   display: grid; grid-template-columns: repeat(3, 72px);

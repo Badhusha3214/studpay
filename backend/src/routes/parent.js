@@ -245,6 +245,49 @@ router.put('/profile', authMiddleware, parentMiddleware, async (req, res) => {
   res.json({ phone: phone || null });
 });
 
+// GET /parent/pending-approvals — junk-food purchases by the caller's own
+// young (grade <= 5) children that are still awaiting a reject/timeout
+router.get('/pending-approvals', authMiddleware, parentMiddleware, async (req, res) => {
+  const parent = await db.prepare('SELECT * FROM students WHERE id = ?').get(req.user.id);
+  const children = await getChildrenFor(parent);
+  const childIds = children.map((c) => c.id);
+  if (childIds.length === 0) return res.json([]);
+
+  const placeholders = childIds.map(() => '?').join(', ');
+  const pending = await db.prepare(`
+    SELECT p.id, p.student_id, p.amount, p.description, p.expires_at, s.name AS student_name
+    FROM pending_purchases p
+    JOIN students s ON s.id = p.student_id
+    WHERE p.student_id IN (${placeholders}) AND p.status = 'pending'
+    ORDER BY p.created_at ASC
+  `).all(...childIds);
+
+  res.json(pending.map((p) => ({
+    id: p.id,
+    studentId: p.student_id,
+    studentName: p.student_name,
+    amount: p.amount,
+    description: p.description,
+    expiresAt: p.expires_at,
+  })));
+});
+
+// POST /parent/pending-approvals/:id/reject — reject a held purchase for the
+// caller's own child. If nobody rejects it before the timeout, the cashier's
+// poll on GET /wallet/pending/:id auto-approves it instead (see wallet.js).
+router.post('/pending-approvals/:id/reject', authMiddleware, parentMiddleware, async (req, res) => {
+  const pending = await db.prepare('SELECT * FROM pending_purchases WHERE id = ?').get(req.params.id);
+  if (!pending) return res.status(404).json({ error: 'Pending purchase not found' });
+  if (!(await requireOwnChild(req, res, pending.student_id))) return;
+
+  const rejected = await db.prepare(
+    "UPDATE pending_purchases SET status = 'rejected' WHERE id = ? AND status = 'pending' RETURNING id"
+  ).get(req.params.id);
+  if (!rejected) return res.status(409).json({ error: 'This purchase was already resolved' });
+
+  res.json({ message: 'Purchase rejected' });
+});
+
 module.exports = router;
 // Exposed so other routers (e.g. insights.js) can reuse the exact same
 // parent-owns-this-child check instead of re-implementing it.

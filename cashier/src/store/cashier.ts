@@ -20,16 +20,21 @@ export interface Transaction {
   created_at: string;
 }
 
+export interface CartLine {
+  menuItemId: string;
+  quantity: number;
+}
+
 export const useCashierStore = defineStore('cashier', () => {
   const token   = ref<string | null>(localStorage.getItem('cashier_token'));
   const cashier = ref<any>(JSON.parse(localStorage.getItem('cashier_user') || 'null'));
 
-  const scannedUid        = ref('');
-  const scannedStudent    = ref<Student | null>(null);
-  const pendingAmount     = ref(0);
-  const pendingDesc       = ref('');
-  const pendingMenuItemId = ref<string | null>(null);
-  const lastTransaction   = ref<Transaction | null>(null);
+  const scannedUid      = ref('');
+  const scannedStudent  = ref<Student | null>(null);
+  const pendingAmount   = ref(0);
+  const pendingDesc     = ref('');
+  const pendingCart     = ref<CartLine[] | null>(null);
+  const lastTransaction = ref<Transaction | null>(null);
 
   async function login(email: string, pin: string) {
     const { data } = await api.post('/auth/login', { email, pin });
@@ -55,10 +60,10 @@ export const useCashierStore = defineStore('cashier', () => {
     localStorage.removeItem('cashier_user');
   }
 
-  function setPending(amount: number, desc: string, menuItemId: string | null = null) {
-    pendingAmount.value     = amount;
-    pendingDesc.value       = desc;
-    pendingMenuItemId.value = menuItemId;
+  function setPending(amount: number, desc: string, cart: CartLine[] | null = null) {
+    pendingAmount.value = amount;
+    pendingDesc.value   = desc;
+    pendingCart.value   = cart;
   }
 
   function setScanned(uid: string, student: Student) {
@@ -71,17 +76,17 @@ export const useCashierStore = defineStore('cashier', () => {
   }
 
   function reset() {
-    scannedUid.value        = '';
-    scannedStudent.value    = null;
-    pendingAmount.value     = 0;
-    pendingDesc.value       = '';
-    pendingMenuItemId.value = null;
+    scannedUid.value     = '';
+    scannedStudent.value = null;
+    pendingAmount.value  = 0;
+    pendingDesc.value    = '';
+    pendingCart.value    = null;
   }
 
   return {
     token, cashier,
     scannedUid, scannedStudent,
-    pendingAmount, pendingDesc, pendingMenuItemId,
+    pendingAmount, pendingDesc, pendingCart,
     lastTransaction,
     login, register, logout, setPending, setScanned, setLastTransaction, reset,
   };

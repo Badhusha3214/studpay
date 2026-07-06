@@ -147,6 +147,32 @@ async function initDB() {
     CHECK (category IN ('junk', 'healthy', 'beverage', 'snack', 'meal', 'other'))
   `);
 
+  // Parent-approval hold for junk-food purchases by young students (grade <= 5).
+  // A purchase requiring approval sits here — unbilled — until a parent rejects
+  // it or the timeout elapses and a cashier poll auto-approves it (see wallet.js).
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS pending_purchases (
+      id            TEXT PRIMARY KEY,
+      student_id    TEXT NOT NULL REFERENCES students(id),
+      shop_owner_id TEXT NOT NULL REFERENCES students(id),
+      amount        REAL NOT NULL,
+      description   TEXT NOT NULL,
+      merchant      TEXT,
+      item_id       TEXT REFERENCES menu_items(id),
+      cart_json     TEXT,
+      status        TEXT NOT NULL DEFAULT 'pending' CONSTRAINT pending_purchases_status_check CHECK (status IN ('pending', 'approved', 'rejected')),
+      created_at    TIMESTAMP NOT NULL DEFAULT NOW(),
+      expires_at    TIMESTAMP NOT NULL
+    );
+  `);
+
+  // Link a finalized transaction back to the pending-approval request that
+  // produced it, so repeated cashier polls after approval return the same
+  // result instead of re-running the debit.
+  if (!txnCols.rows.some((c) => c.column_name === 'pending_purchase_id')) {
+    await pool.query('ALTER TABLE transactions ADD COLUMN pending_purchase_id TEXT REFERENCES pending_purchases(id)');
+  }
+
   // Seed demo data only if empty, and never in production (predictable demo PINs
   // must not be auto-provisioned on a real deploy)
   const existing = await db.prepare('SELECT id FROM students WHERE email = ?').get('admin@studpay.school');

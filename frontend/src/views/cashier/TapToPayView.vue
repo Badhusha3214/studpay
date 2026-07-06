@@ -26,24 +26,46 @@
         <p class="scan-sub">{{ scanning ? 'Ask student to tap their ID card' : 'Enter amount then scan student ID' }}</p>
       </div>
 
-      <!-- Amount + description -->
-      <div class="c-card fade-up">
+      <!-- Amount + description (free-text mode, hidden once a cart exists) -->
+      <div v-if="cart.length === 0" class="c-card fade-up">
         <p class="field-label">Description</p>
-        <ion-input v-model="description" placeholder="e.g. Lunch combo" class="c-input-inline" @ionInput="selectedItemId = null" />
+        <ion-input v-model="description" placeholder="e.g. Lunch combo" class="c-input-inline" />
 
         <p class="field-label" style="margin-top:16px">Amount (₹)</p>
         <div class="amount-row">
           <span class="rupee">₹</span>
-          <ion-input v-model="amount" type="number" placeholder="0" class="amount-input" @ionInput="selectedItemId = null" />
+          <ion-input v-model="amount" type="number" placeholder="0" class="amount-input" />
         </div>
 
         <div class="chip-row">
           <div
             v-for="a in [20, 30, 50, 100]" :key="a"
-            class="amt-chip" :class="{ active: !selectedItemId && Number(amount) === a }"
-            @click="pickQuickAmount(a)"
+            class="amt-chip" :class="{ active: Number(amount) === a }"
+            @click="amount = String(a)"
           >₹{{ a }}</div>
         </div>
+      </div>
+
+      <!-- Cart (shown once at least one item has been added) -->
+      <div v-else class="c-card fade-up">
+        <p class="field-label">Cart</p>
+        <div v-for="line in cart" :key="line.item.id" class="cart-row">
+          <div class="cart-row-info">
+            <p class="cart-row-name">{{ line.item.name }}</p>
+            <p class="cart-row-meta">₹{{ line.item.price }} each</p>
+          </div>
+          <div class="qty-stepper">
+            <button class="qty-btn" @click="changeQty(line.item, -1)">−</button>
+            <span class="qty-val">{{ line.quantity }}</span>
+            <button class="qty-btn" @click="changeQty(line.item, 1)">+</button>
+          </div>
+          <div class="cart-row-total">₹{{ line.item.price * line.quantity }}</div>
+        </div>
+        <div class="cart-total-row">
+          <span>Total</span>
+          <strong>₹{{ cartTotal }}</strong>
+        </div>
+        <button class="clear-cart-btn" @click="cart = []">Clear Cart</button>
       </div>
 
       <!-- Menu items -->
@@ -57,8 +79,8 @@
           <div class="chip-row">
             <div
               v-for="item in group.items" :key="item.id"
-              class="item-chip" :class="{ active: selectedItemId === item.id }"
-              @click="pickItem(item)"
+              class="item-chip" :class="{ active: cart.some((l) => l.item.id === item.id) }"
+              @click="addToCart(item)"
             >{{ item.name }} · ₹{{ item.price }}</div>
           </div>
         </div>
@@ -67,7 +89,7 @@
       <div class="btn-wrap">
         <ion-button
           expand="block" class="scan-btn"
-          :disabled="!amount || Number(amount) <= 0 || scanning"
+          :disabled="!effectiveAmount || effectiveAmount <= 0 || scanning"
           @click="startScanFlow"
         >
           <ion-icon :icon="wifiOutline" slot="start" />
@@ -110,16 +132,26 @@ const store   = useCashierStore();
 const auth    = useAuthStore();
 const { scanning, startScan, error: nfcError } = useNfc();
 
-const amount         = ref('');
-const description    = ref('');
-const statusMsg      = ref('');
-const statusClass    = ref('');
-const menuItems      = ref<MenuItem[]>([]);
-const selectedItemId = ref<string | null>(null);
+interface CartLine { item: MenuItem; quantity: number }
+
+const amount      = ref('');
+const description = ref('');
+const statusMsg   = ref('');
+const statusClass = ref('');
+const menuItems   = ref<MenuItem[]>([]);
+const cart        = ref<CartLine[]>([]);
 
 const groupedItems = computed(() => CATEGORY_ORDER
   .map((category) => ({ category, items: menuItems.value.filter((i) => i.category === category && i.active) }))
   .filter((g) => g.items.length > 0));
+
+const cartTotal = computed(() => cart.value.reduce((sum, l) => sum + l.item.price * l.quantity, 0));
+const cartDescription = computed(() => cart.value.map((l) => `${l.item.name} ×${l.quantity}`).join(', '));
+
+// The values actually used to charge the card — the cart total/description
+// once anything's been added, otherwise the free-text amount/description.
+const effectiveAmount      = computed(() => (cart.value.length ? cartTotal.value : Number(amount.value)));
+const effectiveDescription = computed(() => (cart.value.length ? cartDescription.value : (description.value || 'Payment')));
 
 async function loadMenuItems() {
   try {
@@ -128,20 +160,22 @@ async function loadMenuItems() {
   } catch { /* menu items are optional — billing still works with free-text amounts */ }
 }
 
-function pickItem(item: MenuItem) {
-  selectedItemId.value = item.id;
-  amount.value         = String(item.price);
-  description.value    = item.name;
+function addToCart(item: MenuItem) {
+  const line = cart.value.find((l) => l.item.id === item.id);
+  if (line) line.quantity += 1;
+  else cart.value.push({ item, quantity: 1 });
 }
 
-function pickQuickAmount(a: number) {
-  selectedItemId.value = null;
-  amount.value          = String(a);
+function changeQty(item: MenuItem, delta: number) {
+  const line = cart.value.find((l) => l.item.id === item.id);
+  if (!line) return;
+  line.quantity += delta;
+  if (line.quantity <= 0) cart.value = cart.value.filter((l) => l.item.id !== item.id);
 }
 
 async function startScanFlow() {
   statusMsg.value = '';
-  if (!amount.value || Number(amount.value) <= 0) return;
+  if (!effectiveAmount.value || effectiveAmount.value <= 0) return;
 
   try {
     const uid = await startScan();
@@ -150,7 +184,10 @@ async function startScanFlow() {
     const { data } = await api.post('/nfc/lookup', { uid });
     const student = data.student;
 
-    store.setPending(Number(amount.value), description.value || 'Payment', selectedItemId.value);
+    const cartPayload = cart.value.length
+      ? cart.value.map((l) => ({ menuItemId: l.item.id, quantity: l.quantity }))
+      : null;
+    store.setPending(effectiveAmount.value, effectiveDescription.value, cartPayload);
     store.setScanned(uid, {
       name: student.name,
       class: student.class,
@@ -224,6 +261,30 @@ onMounted(loadMenuItems);
   color: var(--c-subtext); cursor: pointer; border: 2px solid transparent; transition: all 0.15s;
 }
 .amt-chip.active { background: var(--c-green-light); color: var(--c-green); border-color: var(--c-green); }
+
+.cart-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; }
+.cart-row + .cart-row { border-top: 1px solid var(--c-border); }
+.cart-row-info { flex: 1; min-width: 0; }
+.cart-row-name { font-size: 14px; font-weight: 700; margin: 0; color: var(--c-text); }
+.cart-row-meta { font-size: 11px; color: var(--c-subtext); margin: 2px 0 0; }
+.qty-stepper { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.qty-btn {
+  width: 26px; height: 26px; border-radius: 8px; border: none;
+  background: var(--c-bg); color: var(--c-text);
+  font-size: 16px; font-weight: 700; cursor: pointer; line-height: 1;
+}
+.qty-val { font-size: 14px; font-weight: 700; min-width: 16px; text-align: center; }
+.cart-row-total { font-size: 14px; font-weight: 700; color: var(--c-text); width: 52px; text-align: right; flex-shrink: 0; }
+.cart-total-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 12px 0 4px; margin-top: 6px; border-top: 2px solid var(--c-border);
+  font-size: 14px; color: var(--c-subtext);
+}
+.cart-total-row strong { font-size: 18px; color: var(--c-green); }
+.clear-cart-btn {
+  width: 100%; margin-top: 12px; padding: 10px; border-radius: 10px; border: none;
+  background: var(--c-bg); color: var(--c-orange); font-size: 13px; font-weight: 700; cursor: pointer;
+}
 
 .menu-card { margin-top: 12px; }
 .item-group { margin-top: 14px; }

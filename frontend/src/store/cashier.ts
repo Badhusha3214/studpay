@@ -19,20 +19,25 @@ export interface Transaction {
   created_at: string;
 }
 
+export interface CartLine {
+  menuItemId: string;
+  quantity: number;
+}
+
 // Transient state for the shop-owner tap-to-pay flow. Identity/login lives in
 // useAuthStore — this store only holds what's mid-flight between Pay -> Pin -> Receipt.
 export const useCashierStore = defineStore('cashier', () => {
-  const scannedUid        = ref('');
-  const scannedStudent    = ref<Student | null>(null);
-  const pendingAmount     = ref(0);
-  const pendingDesc       = ref('');
-  const pendingMenuItemId = ref<string | null>(null);
-  const lastTransaction   = ref<Transaction | null>(null);
+  const scannedUid      = ref('');
+  const scannedStudent  = ref<Student | null>(null);
+  const pendingAmount   = ref(0);
+  const pendingDesc     = ref('');
+  const pendingCart     = ref<CartLine[] | null>(null);
+  const lastTransaction = ref<Transaction | null>(null);
 
-  function setPending(amount: number, desc: string, menuItemId: string | null = null) {
-    pendingAmount.value     = amount;
-    pendingDesc.value       = desc;
-    pendingMenuItemId.value = menuItemId;
+  function setPending(amount: number, desc: string, cart: CartLine[] | null = null) {
+    pendingAmount.value = amount;
+    pendingDesc.value   = desc;
+    pendingCart.value   = cart;
   }
 
   function setScanned(uid: string, student: Student) {
@@ -45,16 +50,16 @@ export const useCashierStore = defineStore('cashier', () => {
   }
 
   function reset() {
-    scannedUid.value        = '';
-    scannedStudent.value    = null;
-    pendingAmount.value     = 0;
-    pendingDesc.value       = '';
-    pendingMenuItemId.value = null;
+    scannedUid.value     = '';
+    scannedStudent.value = null;
+    pendingAmount.value  = 0;
+    pendingDesc.value    = '';
+    pendingCart.value    = null;
   }
 
   return {
     scannedUid, scannedStudent,
-    pendingAmount, pendingDesc, pendingMenuItemId,
+    pendingAmount, pendingDesc, pendingCart,
     lastTransaction,
     setPending, setScanned, setLastTransaction, reset,
   };
