@@ -9,6 +9,7 @@ export interface Student {
   class: string;
   balance: number;
   role: 'student' | 'parent' | 'shop_owner';
+  merchant_name?: string;
 }
 
 export interface Child {

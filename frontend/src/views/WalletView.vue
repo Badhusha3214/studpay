@@ -35,96 +35,100 @@
             >{{ c.name }}</div>
           </div>
 
-          <!-- Stats -->
-          <div class="stats-grid fade-up">
-            <div class="stat-card" style="--sc:#6C63FF;--scl:#EDE9FF">
-              <p class="sc-val">₹{{ auth.selectedChild?.balance?.toFixed(0) ?? 0 }}</p>
-              <p class="sc-lbl">Balance</p>
-            </div>
-            <div class="stat-card" style="--sc:#00C9A7;--scl:#D6FBF5">
-              <p class="sc-val">{{ auth.selectedChild?.card_uid || '—' }}</p>
-              <p class="sc-lbl">NFC Card</p>
-            </div>
-            <div class="stat-card" style="--sc:#FF6B6B;--scl:#FFE8E8">
-              <p class="sc-val">₹{{ totalSpent.toFixed(0) }}</p>
-              <p class="sc-lbl">Recent Spend</p>
-            </div>
-            <div class="stat-card" style="--sc:#F6A623;--scl:#FFF3D6">
-              <p class="sc-val">₹{{ totalToppedUp.toFixed(0) }}</p>
-              <p class="sc-lbl">Recent Top-Ups</p>
-            </div>
-          </div>
+          <div v-if="switchingChild" class="center"><ion-spinner name="crescent" color="primary" /></div>
 
-          <!-- Wallet card -->
-          <div class="sp-gradient-card fade-up">
-            <div class="card-top">
-              <div>
-                <p class="card-label">Available Balance</p>
-                <h1 class="balance">₹{{ auth.selectedChild?.balance?.toFixed(2) ?? '0.00' }}</h1>
+          <template v-else>
+            <!-- Stats -->
+            <div class="stats-grid fade-up">
+              <div class="stat-card" style="--sc:#6C63FF;--scl:#EDE9FF">
+                <p class="sc-val">₹{{ auth.selectedChild?.balance?.toFixed(0) ?? 0 }}</p>
+                <p class="sc-lbl">Balance</p>
               </div>
-              <div class="avatar">{{ childInitials }}</div>
-            </div>
-            <div class="card-bottom">
-              <div>
-                <p class="card-label">Student</p>
-                <p class="card-value">{{ auth.selectedChild?.name }}</p>
+              <div class="stat-card" style="--sc:#00C9A7;--scl:#D6FBF5">
+                <p class="sc-val">{{ auth.selectedChild?.card_uid || '—' }}</p>
+                <p class="sc-lbl">NFC Card</p>
               </div>
-              <div>
-                <p class="card-label">Class</p>
-                <p class="card-value">{{ auth.selectedChild?.class }}</p>
+              <div class="stat-card" style="--sc:#FF6B6B;--scl:#FFE8E8">
+                <p class="sc-val">₹{{ totalSpent.toFixed(0) }}</p>
+                <p class="sc-lbl">Recent Spend</p>
               </div>
-              <div class="nfc-badge">
-                <ion-icon :icon="wifiOutline" /> {{ auth.selectedChild?.card_uid || 'No card' }}
+              <div class="stat-card" style="--sc:#F6A623;--scl:#FFF3D6">
+                <p class="sc-val">₹{{ totalToppedUp.toFixed(0) }}</p>
+                <p class="sc-lbl">Recent Top-Ups</p>
               </div>
             </div>
-          </div>
 
-          <!-- Top up -->
-          <p class="section-title">Top Up Wallet</p>
-          <div class="sp-card fade-up topup-card">
-            <div class="amount-row">
-              <span class="rupee">₹</span>
-              <input v-model="topupAmount" type="number" placeholder="0" class="amount-input" />
+            <!-- Wallet card -->
+            <div class="sp-gradient-card fade-up">
+              <div class="card-top">
+                <div>
+                  <p class="card-label">Available Balance</p>
+                  <h1 class="balance">₹{{ auth.selectedChild?.balance?.toFixed(2) ?? '0.00' }}</h1>
+                </div>
+                <div class="avatar">{{ childInitials }}</div>
+              </div>
+              <div class="card-bottom">
+                <div>
+                  <p class="card-label">Student</p>
+                  <p class="card-value">{{ auth.selectedChild?.name }}</p>
+                </div>
+                <div>
+                  <p class="card-label">Class</p>
+                  <p class="card-value">{{ auth.selectedChild?.class }}</p>
+                </div>
+                <div class="nfc-badge">
+                  <ion-icon :icon="wifiOutline" /> {{ auth.selectedChild?.card_uid || 'No card' }}
+                </div>
+              </div>
             </div>
-            <div class="chip-row">
+
+            <!-- Top up -->
+            <p class="section-title">Top Up Wallet</p>
+            <div class="sp-card fade-up topup-card">
+              <div class="amount-row">
+                <span class="rupee">₹</span>
+                <input v-model="topupAmount" type="number" placeholder="0" class="amount-input" />
+              </div>
+              <div class="chip-row">
+                <button
+                  v-for="a in [50, 100, 200, 500]" :key="a"
+                  class="chip-btn" :class="{ active: Number(topupAmount) === a }"
+                  @click="topupAmount = String(a)"
+                >₹{{ a }}</button>
+              </div>
               <button
-                v-for="a in [50, 100, 200, 500]" :key="a"
-                class="chip-btn" :class="{ active: Number(topupAmount) === a }"
-                @click="topupAmount = String(a)"
-              >₹{{ a }}</button>
+                class="topup-btn"
+                :disabled="!topupAmount || Number(topupAmount) <= 0 || topupLoading"
+                @click="doTopup"
+              >
+                <ion-spinner v-if="topupLoading" name="crescent" />
+                <span v-else>Add ₹{{ topupAmount || 0 }} to Wallet</span>
+              </button>
+              <p v-if="topupMsg" class="topup-msg" :class="topupMsgClass">{{ topupMsg }}</p>
             </div>
-            <button
-              class="topup-btn"
-              :disabled="!topupAmount || Number(topupAmount) <= 0 || topupLoading"
-              @click="doTopup"
-            >
-              <ion-spinner v-if="topupLoading" name="crescent" />
-              <span v-else>Add ₹{{ topupAmount || 0 }} to Wallet</span>
-            </button>
-            <p v-if="topupMsg" class="topup-msg" :class="topupMsgClass">{{ topupMsg }}</p>
-          </div>
 
-          <!-- Recent activity -->
-          <p class="section-title">Recent Activity</p>
-          <div v-if="childTransactions.length === 0" class="empty-state">
-            <ion-icon :icon="receiptOutline" />
-            <p>No transactions yet</p>
-          </div>
-          <div v-else>
-            <div v-for="txn in childTransactions.slice(0, 8)" :key="txn.id" class="txn-row fade-up">
-              <div class="txn-icon" :class="txn.type">
-                <ion-icon :icon="txn.type === 'credit' ? arrowDownOutline : arrowUpOutline" />
-              </div>
-              <div class="txn-info">
-                <p class="txn-name">{{ txn.description }}</p>
-                <p class="txn-desc">{{ txn.merchant }}</p>
-                <p class="txn-date">{{ formatDate(txn.created_at) }}</p>
-              </div>
-              <div class="txn-amt" :class="txn.type">
-                {{ txn.type === 'credit' ? '+' : '-' }}₹{{ txn.amount.toFixed(2) }}
+            <!-- Recent activity -->
+            <p class="section-title">Recent Activity</p>
+            <div v-if="childTransactions.length === 0" class="empty-state">
+              <ion-icon :icon="receiptOutline" />
+              <p>No transactions yet</p>
+            </div>
+            <div v-else>
+              <div v-for="txn in childTransactions.slice(0, 8)" :key="txn.id" class="txn-row fade-up">
+                <div class="txn-icon" :class="txn.type">
+                  <ion-icon :icon="txn.type === 'credit' ? arrowDownOutline : arrowUpOutline" />
+                </div>
+                <div class="txn-info">
+                  <p class="txn-name">{{ txn.description }}</p>
+                  <p class="txn-desc">{{ txn.merchant }}</p>
+                  <p class="txn-date">{{ formatDate(txn.created_at) }}</p>
+                </div>
+                <div class="txn-amt" :class="txn.type">
+                  {{ txn.type === 'credit' ? '+' : '-' }}₹{{ txn.amount.toFixed(2) }}
+                </div>
               </div>
             </div>
-          </div>
+          </template>
         </template>
       </template>
 
@@ -227,11 +231,17 @@ const topupAmount    = ref('');
 const topupLoading   = ref(false);
 const topupMsg       = ref('');
 const topupMsgClass  = ref('');
+const switchingChild = ref(false);
 
 async function loadChildDetail() {
   if (!auth.selectedChildId) { childTransactions.value = []; return; }
-  const { data } = await api.get(`/parent/child/${auth.selectedChildId}`);
-  childTransactions.value = data.transactions;
+  switchingChild.value = true;
+  try {
+    const { data } = await api.get(`/parent/child/${auth.selectedChildId}`);
+    childTransactions.value = data.transactions;
+  } finally {
+    switchingChild.value = false;
+  }
 }
 
 async function loadData() {

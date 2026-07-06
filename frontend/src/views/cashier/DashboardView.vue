@@ -7,7 +7,7 @@
             <ion-icon :icon="arrowBackOutline" slot="icon-only" />
           </ion-button>
         </ion-buttons>
-        <ion-title>{{ store.cashier?.merchant_name || 'Dashboard' }}</ion-title>
+        <ion-title>{{ auth.student?.merchant_name || 'Dashboard' }}</ion-title>
       </ion-toolbar>
     </ion-header>
 
@@ -124,12 +124,12 @@ import {
 import {
   arrowBackOutline, wifiOutline, receiptOutline, arrowUpOutline,
 } from 'ionicons/icons';
-import { useCashierStore } from '@/store/cashier';
+import { useAuthStore } from '@/store/auth';
 import { useNfc } from '@/composables/useNfc';
 import api from '@/composables/useApi';
 
 const router = useRouter();
-const store  = useCashierStore();
+const auth   = useAuthStore();
 const { scanning: nfcScanning, startScan, error: nfcError } = useNfc();
 
 const stats      = ref<{ todayRevenue: number; todayTransactions: number }>({ todayRevenue: 0, todayTransactions: 0 });

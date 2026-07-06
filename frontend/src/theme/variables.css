@@ -18,6 +18,20 @@
   --sp-shadow:        0 4px 20px rgba(108, 99, 255, 0.12);
   --sp-shadow-lg:     0 8px 32px rgba(108, 99, 255, 0.2);
 
+  /* Cashier (shop owner) tokens — used only under .cashier-mode */
+  --c-green:        #1B998B;
+  --c-green-dark:   #147a6f;
+  --c-green-light:  #D6F5F2;
+  --c-orange:       #FF6B35;
+  --c-orange-light: #FFE8DF;
+  --c-bg:           #F0FAF9;
+  --c-card:         #FFFFFF;
+  --c-text:         #0D2B28;
+  --c-subtext:      #5A7B77;
+  --c-border:       #D0EAE7;
+  --c-shadow:       0 4px 20px rgba(27, 153, 139, 0.12);
+  --c-shadow-lg:    0 8px 32px rgba(27, 153, 139, 0.22);
+
   /* Ionic overrides */
   --ion-color-primary:         var(--sp-purple);
   --ion-color-primary-shade:   var(--sp-purple-dark);
@@ -94,40 +108,6 @@ ion-tab-button {
   padding: 8px 16px 4px;
 }
 
-/* PIN pad */
-.pin-dot {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: var(--sp-border);
-  transition: background 0.2s;
-}
-.pin-dot.filled { background: var(--sp-purple); }
-
-.pin-key {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  width: 72px;
-  height: 72px;
-  border-radius: 50%;
-  background: var(--sp-card-bg);
-  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-  font-size: 22px;
-  font-weight: 600;
-  color: var(--sp-text);
-  cursor: pointer;
-  user-select: none;
-  transition: transform 0.1s, box-shadow 0.1s;
-}
-.pin-key:active {
-  transform: scale(0.93);
-  box-shadow: none;
-}
-.pin-key.danger { color: var(--sp-orange); }
-.pin-key.confirm { background: var(--sp-purple); color: white; }
-
 /* Pulse animation for NFC scan */
 @keyframes nfc-pulse {
   0%   { transform: scale(1);   opacity: 1; }
@@ -142,3 +122,48 @@ ion-tab-button {
   to   { opacity: 1; transform: translateY(0); }
 }
 .fade-up { animation: fadeUp 0.4s ease forwards; }
+
+/* ── Cashier (shop owner) theme — scoped under .cashier-mode on <ion-app> ── */
+.cashier-mode {
+  --ion-color-primary:        var(--c-green);
+  --ion-color-primary-shade:  var(--c-green-dark);
+  --ion-color-primary-tint:   var(--c-green-light);
+  --ion-background-color:     var(--c-bg);
+  --ion-text-color:           var(--c-text);
+  --ion-toolbar-background:   var(--c-green);
+}
+.cashier-mode ion-content { --background: var(--c-bg); }
+.cashier-mode ion-toolbar { --background: var(--c-green); --color: white; --border-color: transparent; }
+
+.c-card {
+  background: var(--c-card);
+  border-radius: 20px;
+  box-shadow: var(--c-shadow);
+  padding: 20px;
+  margin: 12px 16px;
+}
+
+.cashier-mode .pin-dot {
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: var(--c-border);
+  transition: background 0.2s;
+}
+.cashier-mode .pin-dot.filled { background: var(--c-green); }
+
+.cashier-mode .pin-key {
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  width: 72px; height: 72px;
+  border-radius: 50%;
+  background: var(--c-card);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  font-size: 22px; font-weight: 600;
+  color: var(--c-text);
+  cursor: pointer; user-select: none;
+  transition: transform 0.1s, box-shadow 0.1s;
+}
+.cashier-mode .pin-key:active  { transform: scale(0.93); box-shadow: none; }
+.cashier-mode .pin-key.danger  { color: var(--c-orange); }
+.cashier-mode .pin-key.confirm { background: var(--c-green); color: white; }
+.cashier-mode .pin-key.empty   { background: transparent; box-shadow: none; cursor: default; }

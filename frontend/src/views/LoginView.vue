@@ -78,7 +78,7 @@ async function doLogin() {
   errorMsg.value = '';
   try {
     await auth.login(email.value, pin.value.trim());
-    router.replace('/app/wallet');
+    router.replace(auth.student?.role === 'shop_owner' ? '/pay' : '/app/wallet');
   } catch (e: any) {
     errorMsg.value = e?.response?.data?.error || 'Login failed. Check your details.';
   } finally {

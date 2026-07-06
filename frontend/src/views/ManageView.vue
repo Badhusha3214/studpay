@@ -11,6 +11,10 @@
         <ion-refresher-content />
       </ion-refresher>
 
+      <div v-if="processing" class="processing-overlay">
+        <ion-spinner name="crescent" color="light" />
+      </div>
+
       <div v-if="loading" class="center">
         <ion-spinner name="crescent" color="primary" />
       </div>
@@ -185,7 +189,8 @@ import { useAuthStore } from '@/store/auth';
 const auth = useAuthStore();
 const { scanning: nfcScanning, startScan, error: nfcError } = useNfc();
 
-const loading = ref(false);
+const loading    = ref(false);
+const processing = ref(false);
 
 const surnameHint = computed(() => auth.student?.name.trim().split(/\s+/).slice(-1)[0] ?? '');
 
@@ -277,8 +282,13 @@ async function confirmArchive(c: any) {
       {
         text: 'Remove', role: 'destructive',
         handler: async () => {
-          await api.patch(`/parent/child/${c.id}/archive`);
-          await auth.loadChildren();
+          processing.value = true;
+          try {
+            await api.patch(`/parent/child/${c.id}/archive`);
+            await auth.loadChildren();
+          } finally {
+            processing.value = false;
+          }
         },
       },
     ],
@@ -295,8 +305,13 @@ async function deactivateCard(c: any) {
       {
         text: 'Remove', role: 'destructive',
         handler: async () => {
-          await api.patch(`/parent/nfc/${c.card_id}/deactivate`);
-          await auth.loadChildren();
+          processing.value = true;
+          try {
+            await api.patch(`/parent/nfc/${c.card_id}/deactivate`);
+            await auth.loadChildren();
+          } finally {
+            processing.value = false;
+          }
         },
       },
     ],
@@ -342,6 +357,11 @@ onMounted(load);
 </script>
 
 <style scoped>
+.processing-overlay {
+  position: fixed; inset: 0; z-index: 1000;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex; align-items: center; justify-content: center;
+}
 .children-list { padding: 4px 0; }
 .child-card {
   display: flex; align-items: center; gap: 12px;
