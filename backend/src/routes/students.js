@@ -11,7 +11,7 @@ router.get('/', authMiddleware, shopOwnerMiddleware, async (req, res) => {
            c.uid AS card_uid, c.active AS card_active, c.id AS card_id
     FROM students s
     LEFT JOIN cards c ON c.student_id = s.id AND c.active = 1
-    WHERE s.role = 'student'
+    WHERE s.role = 'student' AND s.active = 1
     ORDER BY s.name
   `).all();
   res.json(students);
@@ -79,10 +79,10 @@ router.put('/:id', authMiddleware, shopOwnerMiddleware, async (req, res) => {
   res.json({ message: 'Student updated' });
 });
 
-// DELETE /students/:id — remove student (soft: deactivate all cards)
+// DELETE /students/:id — archive student (soft delete: deactivate all cards + the account)
 router.delete('/:id', authMiddleware, shopOwnerMiddleware, async (req, res) => {
   await db.prepare('UPDATE cards SET active = 0 WHERE student_id = ?').run(req.params.id);
-  await db.prepare('DELETE FROM students WHERE id = ?').run(req.params.id);
+  await db.prepare('UPDATE students SET active = 0 WHERE id = ?').run(req.params.id);
   res.json({ message: 'Student removed' });
 });
 

@@ -10,6 +10,7 @@ router.post('/login', async (req, res) => {
 
   const student = await db.prepare('SELECT * FROM students WHERE email = ?').get(email);
   if (!student) return res.status(401).json({ error: 'Invalid credentials' });
+  if (!student.active) return res.status(401).json({ error: 'This account has been deactivated' });
 
   const valid = bcrypt.compareSync(String(pin), student.pin_hash);
   if (!valid) return res.status(401).json({ error: 'Invalid credentials' });

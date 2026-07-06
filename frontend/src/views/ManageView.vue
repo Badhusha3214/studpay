@@ -30,12 +30,16 @@
               <div class="child-badges">
                 <span v-if="c.card_uid" class="badge nfc">
                   <ion-icon :icon="wifiOutline" /> {{ c.card_uid }}
+                  <ion-icon :icon="closeCircleOutline" class="badge-x" @click.stop="deactivateCard(c)" />
                 </span>
                 <span v-else class="badge no-card">No card</span>
               </div>
             </div>
             <button class="edit-btn" @click="openEdit(c)">
               <ion-icon :icon="createOutline" />
+            </button>
+            <button class="remove-btn" @click="confirmArchive(c)">
+              <ion-icon :icon="trashOutline" />
             </button>
           </div>
         </div>
@@ -169,9 +173,11 @@
 import { ref, computed, onMounted } from 'vue';
 import {
   IonPage, IonHeader, IonToolbar, IonTitle, IonButtons, IonButton, IonContent,
-  IonIcon, IonSpinner, IonRefresher, IonRefresherContent, IonModal,
+  IonIcon, IonSpinner, IonRefresher, IonRefresherContent, IonModal, alertController,
 } from '@ionic/vue';
-import { peopleOutline, wifiOutline, createOutline, personAddOutline } from 'ionicons/icons';
+import {
+  peopleOutline, wifiOutline, createOutline, personAddOutline, trashOutline, closeCircleOutline,
+} from 'ionicons/icons';
 import api from '@/composables/useApi';
 import { useNfc } from '@/composables/useNfc';
 import { useAuthStore } from '@/store/auth';
@@ -262,6 +268,42 @@ async function submitEdit() {
   }
 }
 
+async function confirmArchive(c: any) {
+  const alert = await alertController.create({
+    header: 'Remove Child',
+    message: `Remove ${c.name} from your account? This can't be undone from the app.`,
+    buttons: [
+      { text: 'Cancel', role: 'cancel' },
+      {
+        text: 'Remove', role: 'destructive',
+        handler: async () => {
+          await api.patch(`/parent/child/${c.id}/archive`);
+          await auth.loadChildren();
+        },
+      },
+    ],
+  });
+  await alert.present();
+}
+
+async function deactivateCard(c: any) {
+  const alert = await alertController.create({
+    header: 'Remove Card',
+    message: `Deactivate card ${c.card_uid} for ${c.name}?`,
+    buttons: [
+      { text: 'Cancel', role: 'cancel' },
+      {
+        text: 'Remove', role: 'destructive',
+        handler: async () => {
+          await api.patch(`/parent/nfc/${c.card_id}/deactivate`);
+          await auth.loadChildren();
+        },
+      },
+    ],
+  });
+  await alert.present();
+}
+
 // Register NFC card
 const newUid           = ref('');
 const newStudentId     = ref('');
@@ -323,12 +365,14 @@ onMounted(load);
 }
 .badge.nfc     { background: var(--sp-purple-light); color: var(--sp-purple); font-family: monospace; }
 .badge.no-card { background: var(--sp-border); color: var(--sp-subtext); }
-.edit-btn {
+.badge-x { font-size: 13px; cursor: pointer; margin-left: 2px; }
+.edit-btn, .remove-btn {
   width: 36px; height: 36px; border-radius: 10px; border: none;
   background: var(--sp-bg); color: var(--sp-subtext);
   display: flex; align-items: center; justify-content: center;
   font-size: 16px; cursor: pointer; flex-shrink: 0;
 }
+.remove-btn { color: var(--sp-orange); margin-left: 6px; }
 
 .add-child-btn { --background: var(--sp-purple); --border-radius: 14px; height: 50px; font-weight: 700; margin: 12px 14px; width: calc(100% - 28px); }
 

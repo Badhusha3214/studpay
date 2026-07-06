@@ -67,6 +67,11 @@ async function initDB() {
     await pool.query('ALTER TABLE students ADD COLUMN merchant_name TEXT');
   }
 
+  // Add active column if it doesn't exist yet (soft-delete / archive flag)
+  if (!cols.rows.some((c) => c.column_name === 'active')) {
+    await pool.query('ALTER TABLE students ADD COLUMN active INTEGER NOT NULL DEFAULT 1');
+  }
+
   // Backfill a default shop name for any shop_owner migrated from the old admin role
   await pool.query(
     "UPDATE students SET merchant_name = 'School Canteen' WHERE role = 'shop_owner' AND merchant_name IS NULL"

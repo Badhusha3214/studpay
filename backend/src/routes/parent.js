@@ -31,7 +31,7 @@ async function uniqueEmailFor(name, domain) {
 
 // Children linked to a parent by shared email domain + matching surname
 async function getChildrenFor(parent) {
-  const students = await db.prepare("SELECT * FROM students WHERE role = 'student'").all();
+  const students = await db.prepare("SELECT * FROM students WHERE role = 'student' AND active = 1").all();
   return students.filter(
     (s) => domainOf(s.email) === domainOf(parent.email) && surnameOf(s.name) === surnameOf(parent.name)
   );
@@ -181,6 +181,26 @@ router.post('/nfc/register', authMiddleware, parentMiddleware, async (req, res) 
   if (result.error) return res.status(409).json(result);
 
   res.json({ message: `Card ${result.uid} linked`, cardId: result.cardId });
+});
+
+// PATCH /parent/child/:studentId/archive — archive (soft-delete) the caller's own child
+router.patch('/child/:studentId/archive', authMiddleware, parentMiddleware, async (req, res) => {
+  if (!(await requireOwnChild(req, res, req.params.studentId))) return;
+
+  await db.prepare('UPDATE cards SET active = 0 WHERE student_id = ?').run(req.params.studentId);
+  await db.prepare('UPDATE students SET active = 0 WHERE id = ?').run(req.params.studentId);
+
+  res.json({ message: 'Child account archived' });
+});
+
+// PATCH /parent/nfc/:cardId/deactivate — deactivate one of the caller's own children's cards
+router.patch('/nfc/:cardId/deactivate', authMiddleware, parentMiddleware, async (req, res) => {
+  const card = await db.prepare('SELECT * FROM cards WHERE id = ?').get(req.params.cardId);
+  if (!card) return res.status(404).json({ error: 'Card not found' });
+  if (!(await requireOwnChild(req, res, card.student_id))) return;
+
+  await db.prepare('UPDATE cards SET active = 0 WHERE id = ?').run(req.params.cardId);
+  res.json({ message: 'Card deactivated' });
 });
 
 module.exports = router;
