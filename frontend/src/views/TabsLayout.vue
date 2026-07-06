@@ -12,6 +12,11 @@
           <ion-icon :icon="listOutline" />
           <ion-label>History</ion-label>
         </ion-tab-button>
+
+        <ion-tab-button v-if="auth.isParent" tab="manage" href="/app/manage">
+          <ion-icon :icon="peopleOutline" />
+          <ion-label>Manage</ion-label>
+        </ion-tab-button>
       </ion-tab-bar>
     </ion-tabs>
   </ion-page>
@@ -22,5 +27,8 @@ import {
   IonPage, IonTabs, IonTabBar, IonTabButton,
   IonIcon, IonLabel, IonRouterOutlet,
 } from '@ionic/vue';
-import { walletOutline, listOutline } from 'ionicons/icons';
+import { walletOutline, listOutline, peopleOutline } from 'ionicons/icons';
+import { useAuthStore } from '@/store/auth';
+
+const auth = useAuthStore();
 </script>

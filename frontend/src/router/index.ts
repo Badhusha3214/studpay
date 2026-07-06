@@ -13,6 +13,7 @@ const routes: Array<RouteRecordRaw> = [
       { path: '', redirect: '/app/wallet' },
       { path: 'wallet',  component: () => import('@/views/WalletView.vue') },
       { path: 'history', component: () => import('@/views/HistoryView.vue') },
+      { path: 'manage',  component: () => import('@/views/ManageView.vue') },
     ],
   },
 ];

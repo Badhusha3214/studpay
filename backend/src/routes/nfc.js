@@ -1,7 +1,7 @@
 const router = require('express').Router();
-const { v4: uuidv4 } = require('uuid');
 const { db } = require('../db/schema');
 const { authMiddleware, shopOwnerMiddleware } = require('../middleware/auth');
+const { registerCard } = require('../services/cards');
 
 // GET /nfc/cards — list all NFC cards with student info
 router.get('/cards', authMiddleware, shopOwnerMiddleware, async (req, res) => {
@@ -55,17 +55,10 @@ router.post('/register', authMiddleware, shopOwnerMiddleware, async (req, res) =
   const student = await db.prepare('SELECT id, name FROM students WHERE id = ?').get(studentId);
   if (!student) return res.status(404).json({ error: 'Student not found' });
 
-  const existing = await db.prepare('SELECT id FROM cards WHERE uid = ?').get(uid.toUpperCase());
-  if (existing) return res.status(409).json({ error: 'Card UID already registered' });
+  const result = await registerCard(uid, studentId);
+  if (result.error) return res.status(409).json(result);
 
-  // Deactivate old card for this student if any
-  await db.prepare('UPDATE cards SET active = 0 WHERE student_id = ?').run(studentId);
-
-  const cardId = uuidv4();
-  await db.prepare('INSERT INTO cards (id, uid, student_id, active) VALUES (?, ?, ?, 1)')
-    .run(cardId, uid.toUpperCase(), studentId);
-
-  res.json({ message: `Card ${uid.toUpperCase()} linked to ${student.name}`, cardId });
+  res.json({ message: `Card ${result.uid} linked to ${student.name}`, cardId: result.cardId });
 });
 
 // PATCH /nfc/cards/:id/toggle — activate or deactivate a card

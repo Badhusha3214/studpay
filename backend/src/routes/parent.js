@@ -1,7 +1,9 @@
 const router = require('express').Router();
 const { v4: uuidv4 } = require('uuid');
+const bcrypt = require('bcryptjs');
 const { db } = require('../db/schema');
 const { authMiddleware, parentMiddleware } = require('../middleware/auth');
+const { registerCard } = require('../services/cards');
 
 function surnameOf(name) {
   const parts = name.trim().split(/\s+/);
@@ -10,6 +12,21 @@ function surnameOf(name) {
 
 function domainOf(email) {
   return email.split('@')[1]?.toLowerCase();
+}
+
+function slugify(name) {
+  return name.trim().toLowerCase().replace(/\s+/g, '.').replace(/[^a-z0-9.]/g, '');
+}
+
+async function uniqueEmailFor(name, domain) {
+  const base = slugify(name);
+  let email = `${base}@${domain}`;
+  let suffix = 1;
+  while (await db.prepare('SELECT id FROM students WHERE email = ?').get(email)) {
+    email = `${base}${suffix}@${domain}`;
+    suffix++;
+  }
+  return email;
 }
 
 // Children linked to a parent by shared email domain + matching surname
@@ -103,6 +120,67 @@ router.post('/topup', authMiddleware, parentMiddleware, async (req, res) => {
   `).run(uuidv4(), studentId, Number(amount), note || 'Wallet Top-Up by Parent', newBalance);
 
   res.json({ message: 'Wallet topped up successfully', newBalance });
+});
+
+// POST /parent/students — create a new child linked to the calling parent
+router.post('/students', authMiddleware, parentMiddleware, async (req, res) => {
+  const { name, class: cls, pin, balance = 0 } = req.body;
+  if (!name || !cls || !pin) {
+    return res.status(400).json({ error: 'name, class, pin are required' });
+  }
+
+  const parent = await db.prepare('SELECT * FROM students WHERE id = ?').get(req.user.id);
+  const parentSurname = surnameOf(parent.name);
+  if (surnameOf(name) !== parentSurname) {
+    const displaySurname = parent.name.trim().split(/\s+/).slice(-1)[0];
+    return res.status(400).json({
+      error: `Child's last name must match yours (${displaySurname}) so the account links to you`,
+    });
+  }
+
+  const email   = await uniqueEmailFor(name, domainOf(parent.email));
+  const id      = 'stu-' + uuidv4().slice(0, 8);
+  const pinHash = bcrypt.hashSync(String(pin), 10);
+
+  await db.prepare(`
+    INSERT INTO students (id, name, email, class, balance, pin_hash, role)
+    VALUES (?, ?, ?, ?, ?, ?, 'student')
+  `).run(id, name, email, cls, Number(balance), pinHash);
+
+  res.status(201).json({ id, name, email, class: cls, balance: Number(balance) });
+});
+
+// PUT /parent/child/:studentId — edit own child's name/class
+router.put('/child/:studentId', authMiddleware, parentMiddleware, async (req, res) => {
+  const { name, class: cls } = req.body;
+  if (!(await requireOwnChild(req, res, req.params.studentId))) return;
+
+  if (name) {
+    const parent = await db.prepare('SELECT * FROM students WHERE id = ?').get(req.user.id);
+    if (surnameOf(name) !== surnameOf(parent.name)) {
+      const displaySurname = parent.name.trim().split(/\s+/).slice(-1)[0];
+      return res.status(400).json({
+        error: `Last name must stay ${displaySurname} to keep this account linked to you`,
+      });
+    }
+  }
+
+  await db.prepare('UPDATE students SET name = COALESCE(?, name), class = COALESCE(?, class) WHERE id = ?')
+    .run(name || null, cls || null, req.params.studentId);
+
+  res.json({ message: 'Child updated' });
+});
+
+// POST /parent/nfc/register — register an NFC card for the caller's own child
+router.post('/nfc/register', authMiddleware, parentMiddleware, async (req, res) => {
+  const { uid, studentId } = req.body;
+  if (!uid || !studentId) return res.status(400).json({ error: 'uid and studentId required' });
+  if (!(await requireOwnChild(req, res, studentId))) return;
+
+  const result = await registerCard(uid, studentId);
+  if (result.error) return res.status(409).json(result);
+
+  res.json({ message: `Card ${result.uid} linked`, cardId: result.cardId });
 });
 
 module.exports = router;

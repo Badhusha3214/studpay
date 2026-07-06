@@ -35,6 +35,26 @@
             >{{ c.name }}</div>
           </div>
 
+          <!-- Stats -->
+          <div class="stats-grid fade-up">
+            <div class="stat-card" style="--sc:#6C63FF;--scl:#EDE9FF">
+              <p class="sc-val">₹{{ auth.selectedChild?.balance?.toFixed(0) ?? 0 }}</p>
+              <p class="sc-lbl">Balance</p>
+            </div>
+            <div class="stat-card" style="--sc:#00C9A7;--scl:#D6FBF5">
+              <p class="sc-val">{{ auth.selectedChild?.card_uid || '—' }}</p>
+              <p class="sc-lbl">NFC Card</p>
+            </div>
+            <div class="stat-card" style="--sc:#FF6B6B;--scl:#FFE8E8">
+              <p class="sc-val">₹{{ totalSpent.toFixed(0) }}</p>
+              <p class="sc-lbl">Recent Spend</p>
+            </div>
+            <div class="stat-card" style="--sc:#F6A623;--scl:#FFF3D6">
+              <p class="sc-val">₹{{ totalToppedUp.toFixed(0) }}</p>
+              <p class="sc-lbl">Recent Top-Ups</p>
+            </div>
+          </div>
+
           <!-- Wallet card -->
           <div class="sp-gradient-card fade-up">
             <div class="card-top">
@@ -192,6 +212,12 @@ const initials  = computed(() =>
 const childInitials = computed(() =>
   auth.selectedChild?.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() ?? '??'
 );
+const totalSpent = computed(() =>
+  childTransactions.value.filter((t) => t.type === 'debit').reduce((s, t) => s + t.amount, 0)
+);
+const totalToppedUp = computed(() =>
+  childTransactions.value.filter((t) => t.type === 'credit').reduce((s, t) => s + t.amount, 0)
+);
 
 const loading          = ref(false);
 const transactions     = ref<any[]>([]);
@@ -269,6 +295,18 @@ onMounted(loadData);
 <style scoped>
 .greeting { padding: 20px 20px 8px; }
 .greet-sub   { font-size: 13px; color: var(--sp-subtext); margin: 0; }
+
+/* Parent stats grid */
+.stats-grid {
+  display: grid; grid-template-columns: 1fr 1fr;
+  gap: 12px; padding: 8px 16px 4px;
+}
+.stat-card {
+  background: var(--scl); border-radius: 18px; padding: 16px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.sc-val { font-size: 20px; font-weight: 800; color: var(--sc); margin: 0; overflow-wrap: anywhere; }
+.sc-lbl { font-size: 12px; color: var(--sp-subtext); margin: 0; font-weight: 600; }
 .greet-title { font-size: 28px; font-weight: 800; margin: 4px 0 0; color: var(--sp-text); }
 
 /* Child switcher */

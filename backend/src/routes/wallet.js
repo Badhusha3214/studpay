@@ -1,6 +1,6 @@
 const router = require('express').Router();
 const { v4: uuidv4 } = require('uuid');
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs');
 const { db } = require('../db/schema');
 const { authMiddleware, shopOwnerMiddleware } = require('../middleware/auth');
 
