@@ -10,6 +10,7 @@ const nfcRoutes      = require('./routes/nfc');
 const shopRoutes     = require('./routes/shop');
 const studentsRoutes = require('./routes/students');
 const parentRoutes   = require('./routes/parent');
+const insightsRoutes = require('./routes/insights');
 
 const app = express();
 
@@ -31,6 +32,7 @@ app.use('/nfc',      nfcRoutes);
 app.use('/shop',     shopRoutes);
 app.use('/students', studentsRoutes);
 app.use('/parent',   parentRoutes);
+app.use('/api/insights', insightsRoutes);
 
 // 404 handler
 app.use((req, res) => res.status(404).json({ error: 'Route not found' }));

@@ -246,3 +246,6 @@ router.put('/profile', authMiddleware, parentMiddleware, async (req, res) => {
 });
 
 module.exports = router;
+// Exposed so other routers (e.g. insights.js) can reuse the exact same
+// parent-owns-this-child check instead of re-implementing it.
+module.exports.requireOwnChild = requireOwnChild;

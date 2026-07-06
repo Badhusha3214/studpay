@@ -110,6 +110,39 @@ async function initDB() {
     await pool.query('ALTER TABLE transactions ADD COLUMN emergency_amount REAL NOT NULL DEFAULT 0');
   }
 
+  // Purchase Insights feature — canteen menu catalog, categorized for health/spending reports
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS menu_items (
+      id       TEXT PRIMARY KEY,
+      name     TEXT NOT NULL,
+      category TEXT NOT NULL CHECK (category IN ('junk', 'healthy', 'beverage', 'snack', 'meal')),
+      price    REAL NOT NULL,
+      active   INTEGER NOT NULL DEFAULT 1
+    );
+  `);
+
+  // Link transactions to the menu item purchased (nullable — older/manual transactions have no item)
+  if (!txnCols.rows.some((c) => c.column_name === 'item_id')) {
+    await pool.query('ALTER TABLE transactions ADD COLUMN item_id TEXT REFERENCES menu_items(id)');
+  }
+
+  // Seed a few demo menu items across categories, never in production
+  const existingMenuItem = await db.prepare('SELECT id FROM menu_items WHERE id = ?').get('item-001');
+  if (!existingMenuItem && process.env.NODE_ENV !== 'production') {
+    const insertItem = db.prepare(
+      'INSERT INTO menu_items (id,name,category,price,active) VALUES (?,?,?,?,1)'
+    );
+    await insertItem.run('item-001', 'Samosa',         'junk',     15);
+    await insertItem.run('item-002', 'Masala Chips',   'junk',     10);
+    await insertItem.run('item-003', 'Veg Sandwich',   'healthy',  30);
+    await insertItem.run('item-004', 'Fruit Bowl',      'healthy', 25);
+    await insertItem.run('item-005', 'Cold Drink',      'beverage', 20);
+    await insertItem.run('item-006', 'Fresh Juice',     'beverage', 25);
+    await insertItem.run('item-007', 'Chocolate Bar',   'snack',   12);
+    await insertItem.run('item-008', 'Lunch Combo',     'meal',    50);
+    console.log('✅ Menu items seeded');
+  }
+
   // Seed demo data only if empty, and never in production (predictable demo PINs
   // must not be auto-provisioned on a real deploy)
   const existing = await db.prepare('SELECT id FROM students WHERE email = ?').get('admin@studpay.school');
@@ -152,20 +185,20 @@ async function initDB() {
 
     // Seed some transactions across all three shops
     const txnStmt = db.prepare(`
-      INSERT INTO transactions (id,student_id,type,amount,description,merchant,balance_after,created_at)
-      VALUES (?,?,?,?,?,?,?,?)
+      INSERT INTO transactions (id,student_id,type,amount,description,merchant,balance_after,created_at,item_id)
+      VALUES (?,?,?,?,?,?,?,?,?)
     `);
-    await txnStmt.run('txn-001', 'stu-001', 'debit',  50,  'Lunch Combo',       'School Canteen',    450, datetime(-1));
-    await txnStmt.run('txn-002', 'stu-001', 'credit', 200, 'Wallet Top-Up',     'Parent Top-Up',     500, datetime(-2));
-    await txnStmt.run('txn-003', 'stu-001', 'debit',  20,  'Notebook Set',      'School Book Store', 300, datetime(-3));
-    await txnStmt.run('txn-004', 'stu-002', 'debit',  30,  'Snacks',            'School Canteen',    290, datetime(-1));
-    await txnStmt.run('txn-005', 'stu-002', 'credit', 200, 'Wallet Top-Up',     'Parent Top-Up',     320, datetime(-2));
-    await txnStmt.run('txn-006', 'stu-003', 'debit',  15,  'Pencil Box',        'Stationery Corner',  75, datetime(-1));
-    await txnStmt.run('txn-007', 'stu-003', 'credit', 100, 'Wallet Top-Up',     'Parent Top-Up',      90, datetime(-4));
-    await txnStmt.run('txn-008', 'stu-004', 'debit',  25,  'Textbook - Science','School Book Store', 175, datetime(-2));
-    await txnStmt.run('txn-009', 'stu-004', 'credit', 200, 'Wallet Top-Up',     'Parent Top-Up',     200, datetime(-5));
-    await txnStmt.run('txn-010', 'stu-005', 'debit',  10,  'Sketch Pens',       'Stationery Corner', 140, datetime(-1));
-    await txnStmt.run('txn-011', 'stu-005', 'debit',  40,  'Lunch Combo',       'School Canteen',    150, datetime(-3));
+    await txnStmt.run('txn-001', 'stu-001', 'debit',  50,  'Lunch Combo',       'School Canteen',    450, datetime(-1), 'item-008');
+    await txnStmt.run('txn-002', 'stu-001', 'credit', 200, 'Wallet Top-Up',     'Parent Top-Up',     500, datetime(-2), null);
+    await txnStmt.run('txn-003', 'stu-001', 'debit',  20,  'Notebook Set',      'School Book Store', 300, datetime(-3), null);
+    await txnStmt.run('txn-004', 'stu-002', 'debit',  30,  'Snacks',            'School Canteen',    290, datetime(-1), 'item-002');
+    await txnStmt.run('txn-005', 'stu-002', 'credit', 200, 'Wallet Top-Up',     'Parent Top-Up',     320, datetime(-2), null);
+    await txnStmt.run('txn-006', 'stu-003', 'debit',  15,  'Pencil Box',        'Stationery Corner',  75, datetime(-1), null);
+    await txnStmt.run('txn-007', 'stu-003', 'credit', 100, 'Wallet Top-Up',     'Parent Top-Up',      90, datetime(-4), null);
+    await txnStmt.run('txn-008', 'stu-004', 'debit',  25,  'Textbook - Science','School Book Store', 175, datetime(-2), null);
+    await txnStmt.run('txn-009', 'stu-004', 'credit', 200, 'Wallet Top-Up',     'Parent Top-Up',     200, datetime(-5), null);
+    await txnStmt.run('txn-010', 'stu-005', 'debit',  10,  'Sketch Pens',       'Stationery Corner', 140, datetime(-1), null);
+    await txnStmt.run('txn-011', 'stu-005', 'debit',  40,  'Lunch Combo',       'School Canteen',    150, datetime(-3), 'item-008');
 
     console.log('✅ Database seeded');
     console.log('   Shop owners : admin@studpay.school (1234, School Canteen)');

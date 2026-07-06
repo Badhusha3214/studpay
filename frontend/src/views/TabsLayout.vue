@@ -13,6 +13,11 @@
           <ion-label>History</ion-label>
         </ion-tab-button>
 
+        <ion-tab-button v-if="auth.isParent" tab="insights" href="/app/insights">
+          <ion-icon :icon="statsChartOutline" />
+          <ion-label>Insights</ion-label>
+        </ion-tab-button>
+
         <ion-tab-button v-if="auth.isParent" tab="manage" href="/app/manage">
           <ion-icon :icon="peopleOutline" />
           <ion-label>Manage</ion-label>
@@ -27,7 +32,7 @@ import {
   IonPage, IonTabs, IonTabBar, IonTabButton,
   IonIcon, IonLabel, IonRouterOutlet,
 } from '@ionic/vue';
-import { walletOutline, listOutline, peopleOutline } from 'ionicons/icons';
+import { walletOutline, listOutline, peopleOutline, statsChartOutline } from 'ionicons/icons';
 import { useAuthStore } from '@/store/auth';
 
 const auth = useAuthStore();

@@ -86,9 +86,29 @@ router.post('/pay', authMiddleware, async (req, res) => {
   });
 });
 
-// POST /wallet/pay-by-nfc — cashier terminal: uid + student PIN + amount
+// GET /wallet/menu-items — active canteen menu items for the cashier to pick from
+router.get('/menu-items', authMiddleware, shopOwnerMiddleware, async (req, res) => {
+  const items = await db.prepare(
+    'SELECT id, name, category, price FROM menu_items WHERE active = 1 ORDER BY category, name'
+  ).all();
+  res.json(items);
+});
+
+// POST /wallet/pay-by-nfc — cashier terminal: uid + student PIN + amount (or menuItemId)
 router.post('/pay-by-nfc', authMiddleware, shopOwnerMiddleware, async (req, res) => {
-  const { uid, pin, amount, description, merchant } = req.body;
+  let { uid, pin, amount, description, merchant, menuItemId } = req.body;
+
+  // If a menu item is selected, resolve its server-trusted price/name up front.
+  // This only fills in `amount`/`description` when the cashier omitted them —
+  // the PIN, balance, and daily-limit checks below are untouched.
+  let menuItem = null;
+  if (menuItemId) {
+    menuItem = await db.prepare('SELECT * FROM menu_items WHERE id = ? AND active = 1').get(menuItemId);
+    if (!menuItem) return res.status(404).json({ error: 'Menu item not found or inactive' });
+    if (amount === undefined || amount === null || amount === '') amount = menuItem.price;
+    if (!description) description = menuItem.name;
+  }
+
   if (!uid || !pin || !amount || amount <= 0) {
     return res.status(400).json({ error: 'uid, pin and amount are required' });
   }
@@ -144,13 +164,14 @@ router.post('/pay-by-nfc', authMiddleware, shopOwnerMiddleware, async (req, res)
     merchant:     merchant || 'School',
     balance_after: newBalance,
     emergency_amount: fromEmergency,
+    item_id:      menuItem ? menuItem.id : null,
     created_at:   new Date().toISOString().replace('T', ' ').slice(0, 19),
   };
 
   await db.prepare(`
-    INSERT INTO transactions (id, student_id, type, amount, description, merchant, balance_after, emergency_amount)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(txn.id, txn.student_id, txn.type, txn.amount, txn.description, txn.merchant, txn.balance_after, txn.emergency_amount);
+    INSERT INTO transactions (id, student_id, type, amount, description, merchant, balance_after, emergency_amount, item_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(txn.id, txn.student_id, txn.type, txn.amount, txn.description, txn.merchant, txn.balance_after, txn.emergency_amount, txn.item_id);
 
   res.json({
     message: fromEmergency > 0 ? 'Payment successful (emergency fund used)' : 'Payment successful',
