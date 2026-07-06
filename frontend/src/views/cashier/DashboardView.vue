@@ -84,6 +84,51 @@
         <p v-if="registerMsg" class="msg" :class="registerMsgClass">{{ registerMsg }}</p>
       </div>
 
+      <!-- Manage menu items -->
+      <p class="section-title">Manage Menu Items</p>
+      <div class="c-card fade-up">
+        <div v-if="menuItems.length" class="menu-list">
+          <div v-for="item in menuItems" :key="item.id" class="menu-row" :class="{ inactive: !item.active }">
+            <span class="cat-dot" :style="{ background: CATEGORY_COLORS[item.category] }" />
+            <div class="menu-row-info">
+              <p class="menu-row-name">{{ item.name }}</p>
+              <p class="menu-row-meta">{{ CATEGORY_LABELS[item.category] }} · ₹{{ item.price }}</p>
+            </div>
+            <button class="toggle-btn" @click="toggleItem(item)">
+              {{ item.active ? 'Deactivate' : 'Activate' }}
+            </button>
+          </div>
+        </div>
+        <p v-else class="no-items">No menu items yet</p>
+
+        <div class="divider"><span>add an item</span></div>
+
+        <div class="field-group">
+          <label>Item Name</label>
+          <ion-input v-model="newItemName" placeholder="e.g. Samosa" class="c-input-inline" />
+        </div>
+        <div class="field-group">
+          <label>Category</label>
+          <ion-select v-model="newItemCategory" placeholder="Select a category" interface="popover" class="c-input-inline">
+            <ion-select-option v-for="c in CATEGORY_ORDER" :key="c" :value="c">{{ CATEGORY_LABELS[c] }}</ion-select-option>
+          </ion-select>
+        </div>
+        <div class="field-group">
+          <label>Price (₹)</label>
+          <ion-input v-model="newItemPrice" type="number" placeholder="0" class="c-input-inline" />
+        </div>
+
+        <ion-button
+          expand="block" class="link-btn"
+          :disabled="!newItemName || !newItemCategory || !newItemPrice || itemLoading"
+          @click="addItem"
+        >
+          <ion-spinner v-if="itemLoading" name="crescent" />
+          <span v-else>Add Item</span>
+        </ion-button>
+        <p v-if="itemMsg" class="msg" :class="itemMsgClass">{{ itemMsg }}</p>
+      </div>
+
       <!-- Transaction log -->
       <p class="section-title">Transaction Log</p>
       <div v-if="txnLoading" class="center">
@@ -128,6 +173,18 @@ import { useAuthStore } from '@/store/auth';
 import { useNfc } from '@/composables/useNfc';
 import api from '@/composables/useApi';
 
+interface MenuItem { id: string; name: string; category: string; price: number; active: number }
+
+const CATEGORY_ORDER  = ['junk', 'healthy', 'beverage', 'snack', 'meal', 'other'];
+const CATEGORY_COLORS: Record<string, string> = {
+  junk: '#2a78d6', healthy: '#1baf7a', beverage: '#eda100',
+  snack: '#008300', meal: '#4a3aa7', other: '#9a9a94',
+};
+const CATEGORY_LABELS: Record<string, string> = {
+  junk: 'Junk Food', healthy: 'Healthy', beverage: 'Beverage',
+  snack: 'Snack', meal: 'Meal', other: 'Other',
+};
+
 const router = useRouter();
 const auth   = useAuthStore();
 const { scanning: nfcScanning, startScan, error: nfcError } = useNfc();
@@ -148,19 +205,57 @@ const registerLoading   = ref(false);
 const registerMsg       = ref('');
 const registerMsgClass  = ref('');
 
+const menuItems       = ref<MenuItem[]>([]);
+const newItemName     = ref('');
+const newItemCategory = ref('');
+const newItemPrice    = ref('');
+const itemLoading     = ref(false);
+const itemMsg         = ref('');
+const itemMsgClass    = ref('');
+
 async function loadAll() {
   txnLoading.value = true;
   try {
-    const [statsRes, txnRes, stuRes] = await Promise.all([
+    const [statsRes, txnRes, stuRes, menuRes] = await Promise.all([
       api.get('/shop/stats'),
       api.get('/shop/transactions'),
       api.get('/students'),
+      api.get('/menu/items'),
     ]);
-    stats.value    = statsRes.data;
-    txns.value     = txnRes.data;
-    students.value = stuRes.data;
+    stats.value     = statsRes.data;
+    txns.value      = txnRes.data;
+    students.value  = stuRes.data;
+    menuItems.value = menuRes.data;
   } finally {
     txnLoading.value = false;
+  }
+}
+
+async function toggleItem(item: MenuItem) {
+  await api.patch(`/menu/items/${item.id}/toggle`);
+  const { data } = await api.get('/menu/items');
+  menuItems.value = data;
+}
+
+async function addItem() {
+  itemLoading.value = true;
+  itemMsg.value     = '';
+  try {
+    await api.post('/menu/items', {
+      name: newItemName.value,
+      category: newItemCategory.value,
+      price: Number(newItemPrice.value),
+    });
+    itemMsg.value      = `${newItemName.value} added!`;
+    itemMsgClass.value = 'success';
+    newItemName.value = newItemCategory.value = newItemPrice.value = '';
+    const { data } = await api.get('/menu/items');
+    menuItems.value = data;
+  } catch (e: any) {
+    itemMsg.value      = e?.response?.data?.error || 'Failed to add item';
+    itemMsgClass.value = 'error';
+  } finally {
+    itemLoading.value = false;
   }
 }
 
@@ -264,6 +359,27 @@ onMounted(loadAll);
 .scan-tile-sub   { font-size: 12px; color: var(--c-subtext); margin: 3px 0 0; }
 
 .link-btn { --background: var(--c-green); --border-radius: 14px; height: 50px; font-weight: 700; margin-top: 4px; }
+
+.menu-list { margin-bottom: 4px; }
+.menu-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; }
+.menu-row + .menu-row { border-top: 1px solid var(--c-border); }
+.menu-row.inactive { opacity: 0.5; }
+.menu-row .cat-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.menu-row-info { flex: 1; min-width: 0; }
+.menu-row-name { font-size: 14px; font-weight: 700; margin: 0; color: var(--c-text); }
+.menu-row-meta { font-size: 12px; color: var(--c-subtext); margin: 2px 0 0; }
+.toggle-btn {
+  padding: 6px 12px; border-radius: 100px; border: none;
+  background: var(--c-bg); color: var(--c-subtext);
+  font-size: 12px; font-weight: 700; cursor: pointer; flex-shrink: 0;
+}
+.no-items { font-size: 13px; color: var(--c-subtext); margin: 0 0 4px; }
+
+.divider {
+  display: flex; align-items: center; gap: 10px;
+  color: var(--c-subtext); font-size: 12px; margin: 14px 0 16px;
+}
+.divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: var(--c-border); }
 
 .msg { font-size: 13px; font-weight: 600; text-align: center; margin-top: 10px; }
 .msg.success { color: var(--c-green); }

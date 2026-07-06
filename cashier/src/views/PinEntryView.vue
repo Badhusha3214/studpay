@@ -98,6 +98,7 @@ async function confirm() {
       pin:         entered.value,
       amount:      store.pendingAmount,
       description: store.pendingDesc,
+      menuItemId:  store.pendingMenuItemId,
       merchant:    store.cashier?.merchant_name,
     });
 

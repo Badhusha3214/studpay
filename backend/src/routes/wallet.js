@@ -86,14 +86,6 @@ router.post('/pay', authMiddleware, async (req, res) => {
   });
 });
 
-// GET /wallet/menu-items — active canteen menu items for the cashier to pick from
-router.get('/menu-items', authMiddleware, shopOwnerMiddleware, async (req, res) => {
-  const items = await db.prepare(
-    'SELECT id, name, category, price FROM menu_items WHERE active = 1 ORDER BY category, name'
-  ).all();
-  res.json(items);
-});
-
 // POST /wallet/pay-by-nfc — cashier terminal: uid + student PIN + amount (or menuItemId)
 router.post('/pay-by-nfc', authMiddleware, shopOwnerMiddleware, async (req, res) => {
   let { uid, pin, amount, description, merchant, menuItemId } = req.body;
@@ -103,7 +95,9 @@ router.post('/pay-by-nfc', authMiddleware, shopOwnerMiddleware, async (req, res)
   // the PIN, balance, and daily-limit checks below are untouched.
   let menuItem = null;
   if (menuItemId) {
-    menuItem = await db.prepare('SELECT * FROM menu_items WHERE id = ? AND active = 1').get(menuItemId);
+    menuItem = await db.prepare(
+      'SELECT * FROM menu_items WHERE id = ? AND active = 1 AND shop_owner_id = ?'
+    ).get(menuItemId, req.user.id);
     if (!menuItem) return res.status(404).json({ error: 'Menu item not found or inactive' });
     if (amount === undefined || amount === null || amount === '') amount = menuItem.price;
     if (!description) description = menuItem.name;

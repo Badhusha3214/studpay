@@ -115,7 +115,7 @@ async function initDB() {
     CREATE TABLE IF NOT EXISTS menu_items (
       id       TEXT PRIMARY KEY,
       name     TEXT NOT NULL,
-      category TEXT NOT NULL CHECK (category IN ('junk', 'healthy', 'beverage', 'snack', 'meal')),
+      category TEXT NOT NULL CONSTRAINT menu_items_category_check CHECK (category IN ('junk', 'healthy', 'beverage', 'snack', 'meal')),
       price    REAL NOT NULL,
       active   INTEGER NOT NULL DEFAULT 1
     );
@@ -126,22 +126,26 @@ async function initDB() {
     await pool.query('ALTER TABLE transactions ADD COLUMN item_id TEXT REFERENCES menu_items(id)');
   }
 
-  // Seed a few demo menu items across categories, never in production
-  const existingMenuItem = await db.prepare('SELECT id FROM menu_items WHERE id = ?').get('item-001');
-  if (!existingMenuItem && process.env.NODE_ENV !== 'production') {
-    const insertItem = db.prepare(
-      'INSERT INTO menu_items (id,name,category,price,active) VALUES (?,?,?,?,1)'
-    );
-    await insertItem.run('item-001', 'Samosa',         'junk',     15);
-    await insertItem.run('item-002', 'Masala Chips',   'junk',     10);
-    await insertItem.run('item-003', 'Veg Sandwich',   'healthy',  30);
-    await insertItem.run('item-004', 'Fruit Bowl',      'healthy', 25);
-    await insertItem.run('item-005', 'Cold Drink',      'beverage', 20);
-    await insertItem.run('item-006', 'Fresh Juice',     'beverage', 25);
-    await insertItem.run('item-007', 'Chocolate Bar',   'snack',   12);
-    await insertItem.run('item-008', 'Lunch Combo',     'meal',    50);
-    console.log('✅ Menu items seeded');
+  // Scope menu items to the shop owner who created them — each shop manages
+  // its own catalog only (a Book Store owner must not see/sell the Canteen's items)
+  const menuCols = await pool.query(
+    "SELECT column_name FROM information_schema.columns WHERE table_name = 'menu_items'"
+  );
+  if (!menuCols.rows.some((c) => c.column_name === 'shop_owner_id')) {
+    await pool.query('ALTER TABLE menu_items ADD COLUMN shop_owner_id TEXT REFERENCES students(id)');
   }
+  // Backfill any rows from before this migration (no-op on a fresh DB)
+  await pool.query("UPDATE menu_items SET shop_owner_id = 'owner-001' WHERE shop_owner_id IS NULL");
+
+  // Widen the category enum for non-food shops (Book Store, Stationery Corner).
+  // The table may already exist from a prior deploy with the old 5-value CHECK,
+  // so refresh the constraint unconditionally rather than relying on
+  // CREATE TABLE IF NOT EXISTS, which is a no-op once the table already exists.
+  await pool.query('ALTER TABLE menu_items DROP CONSTRAINT IF EXISTS menu_items_category_check');
+  await pool.query(`
+    ALTER TABLE menu_items ADD CONSTRAINT menu_items_category_check
+    CHECK (category IN ('junk', 'healthy', 'beverage', 'snack', 'meal', 'other'))
+  `);
 
   // Seed demo data only if empty, and never in production (predictable demo PINs
   // must not be auto-provisioned on a real deploy)
@@ -163,6 +167,21 @@ async function initDB() {
     await insertUser.run('owner-001', 'Shop Owner',        'admin@studpay.school',      'Staff', 0, ownerPin,  'shop_owner', 'School Canteen');
     await insertUser.run('owner-002', 'Book Store Owner',  'bookstore@studpay.school',  'Staff', 0, owner2Pin, 'shop_owner', 'School Book Store');
     await insertUser.run('owner-003', 'Stationery Owner',  'stationery@studpay.school', 'Staff', 0, owner3Pin, 'shop_owner', 'Stationery Corner');
+
+    // Demo menu items for the Canteen (owner-001) — seeded here, after shop
+    // owners exist, since menu_items.shop_owner_id has a FK to students(id)
+    const insertItem = db.prepare(
+      'INSERT INTO menu_items (id,name,category,price,active,shop_owner_id) VALUES (?,?,?,?,1,?)'
+    );
+    await insertItem.run('item-001', 'Samosa',         'junk',     15, 'owner-001');
+    await insertItem.run('item-002', 'Masala Chips',   'junk',     10, 'owner-001');
+    await insertItem.run('item-003', 'Veg Sandwich',   'healthy',  30, 'owner-001');
+    await insertItem.run('item-004', 'Fruit Bowl',      'healthy', 25, 'owner-001');
+    await insertItem.run('item-005', 'Cold Drink',      'beverage', 20, 'owner-001');
+    await insertItem.run('item-006', 'Fresh Juice',     'beverage', 25, 'owner-001');
+    await insertItem.run('item-007', 'Chocolate Bar',   'snack',   12, 'owner-001');
+    await insertItem.run('item-008', 'Lunch Combo',     'meal',    50, 'owner-001');
+    console.log('✅ Menu items seeded');
 
     // Parents (frontend app logins) — linked to children by surname + email domain
     await insertUser.run('parent-001', 'Lakshmi Menon', 'lakshmi.menon@student.school', 'Parent', 0, parentPin,  'parent', null);
