@@ -5,6 +5,7 @@ import { useCashierStore } from '@/store/cashier';
 const routes: Array<RouteRecordRaw> = [
   { path: '/', redirect: '/login' },
   { path: '/login',   component: () => import('@/views/LoginView.vue') },
+  { path: '/register', component: () => import('@/views/RegisterView.vue') },
   { path: '/pay',       component: () => import('@/views/TapToPayView.vue'),  meta: { requiresAuth: true } },
   { path: '/pin',       component: () => import('@/views/PinEntryView.vue'),  meta: { requiresAuth: true } },
   { path: '/receipt',   component: () => import('@/views/ReceiptView.vue'),   meta: { requiresAuth: true } },

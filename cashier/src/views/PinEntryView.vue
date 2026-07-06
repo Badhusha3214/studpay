@@ -25,6 +25,11 @@
           </div>
         </div>
 
+        <div v-if="store.scannedStudent?.allergies" class="allergy-banner fade-up">
+          <ion-icon :icon="warningOutline" />
+          <span>Allergy: {{ store.scannedStudent.allergies }}</span>
+        </div>
+
         <!-- PIN dots -->
         <p class="pin-prompt">Student: enter your PIN to confirm</p>
         <div class="pin-dots">
@@ -55,8 +60,9 @@ import { ref, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import {
   IonPage, IonHeader, IonToolbar, IonTitle,
-  IonButtons, IonBackButton, IonContent,
+  IonButtons, IonBackButton, IonContent, IonIcon,
 } from '@ionic/vue';
+import { warningOutline } from 'ionicons/icons';
 import { useCashierStore } from '@/store/cashier';
 import api from '@/composables/useApi';
 
@@ -148,6 +154,15 @@ async function confirm() {
   color: var(--c-orange); font-size: 13px; font-weight: 600;
   margin: 4px 0 16px;
 }
+
+.allergy-banner {
+  display: flex; align-items: center; gap: 8px;
+  background: #FFF3D6; color: #B45309;
+  border-radius: 12px; padding: 10px 14px;
+  font-size: 13px; font-weight: 700;
+  width: 100%; max-width: 380px; margin: -14px 0 20px;
+}
+.allergy-banner ion-icon { font-size: 18px; flex-shrink: 0; }
 
 .keypad {
   display: grid; grid-template-columns: repeat(3, 72px);

@@ -7,6 +7,7 @@ export interface Student {
   class: string;
   balance: number;
   uid: string;
+  allergies?: string | null;
 }
 
 export interface Transaction {
@@ -15,6 +16,7 @@ export interface Transaction {
   description: string;
   merchant: string;
   balance_after: number;
+  emergency_amount?: number;
   created_at: string;
 }
 
@@ -31,6 +33,14 @@ export const useCashierStore = defineStore('cashier', () => {
   async function login(email: string, pin: string) {
     const { data } = await api.post('/auth/login', { email, pin });
     if (data.student.role !== 'shop_owner') throw new Error('Cashier must be a shop owner account');
+    token.value   = data.token;
+    cashier.value = data.student;
+    localStorage.setItem('cashier_token', data.token);
+    localStorage.setItem('cashier_user', JSON.stringify(data.student));
+  }
+
+  async function register(payload: { name: string; email: string; pin: string; merchantName: string }) {
+    const { data } = await api.post('/auth/register', { ...payload, role: 'shop_owner' });
     token.value   = data.token;
     cashier.value = data.student;
     localStorage.setItem('cashier_token', data.token);
@@ -70,6 +80,6 @@ export const useCashierStore = defineStore('cashier', () => {
     scannedUid, scannedStudent,
     pendingAmount, pendingDesc,
     lastTransaction,
-    login, logout, setPending, setScanned, setLastTransaction, reset,
+    login, register, logout, setPending, setScanned, setLastTransaction, reset,
   };
 });

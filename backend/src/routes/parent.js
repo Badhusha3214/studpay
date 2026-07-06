@@ -4,15 +4,7 @@ const bcrypt = require('bcryptjs');
 const { db } = require('../db/schema');
 const { authMiddleware, parentMiddleware } = require('../middleware/auth');
 const { registerCard } = require('../services/cards');
-
-function surnameOf(name) {
-  const parts = name.trim().split(/\s+/);
-  return parts[parts.length - 1].toLowerCase();
-}
-
-function domainOf(email) {
-  return email.split('@')[1]?.toLowerCase();
-}
+const { surnameOf, domainOf, getChildrenFor } = require('../services/family');
 
 function slugify(name) {
   return name.trim().toLowerCase().replace(/\s+/g, '.').replace(/[^a-z0-9.]/g, '');
@@ -27,14 +19,6 @@ async function uniqueEmailFor(name, domain) {
     suffix++;
   }
   return email;
-}
-
-// Children linked to a parent by shared email domain + matching surname
-async function getChildrenFor(parent) {
-  const students = await db.prepare("SELECT * FROM students WHERE role = 'student' AND active = 1").all();
-  return students.filter(
-    (s) => domainOf(s.email) === domainOf(parent.email) && surnameOf(s.name) === surnameOf(parent.name)
-  );
 }
 
 async function requireOwnChild(req, res, studentId) {
@@ -55,7 +39,9 @@ router.get('/children', authMiddleware, parentMiddleware, async (req, res) => {
     const card = await db.prepare('SELECT uid, active, id FROM cards WHERE student_id = ? AND active = 1').get(s.id);
     return {
       id: s.id, name: s.name, email: s.email, class: s.class, balance: s.balance,
+      emergency_balance: s.emergency_balance, allergies: s.allergies,
       card_uid: card?.uid ?? null, card_active: card?.active ?? null, card_id: card?.id ?? null,
+      daily_limit_amount: s.daily_limit_amount, daily_limit_count: s.daily_limit_count,
     };
   }));
   res.json(children);
@@ -66,7 +52,7 @@ router.get('/child/:studentId', authMiddleware, parentMiddleware, async (req, re
   if (!(await requireOwnChild(req, res, req.params.studentId))) return;
 
   const student = await db.prepare(`
-    SELECT s.id, s.name, s.email, s.class, s.balance,
+    SELECT s.id, s.name, s.email, s.class, s.balance, s.emergency_balance, s.allergies,
            c.uid AS card_uid, c.active AS card_active, c.id AS card_id
     FROM students s
     LEFT JOIN cards c ON c.student_id = s.id AND c.active = 1
@@ -150,9 +136,9 @@ router.post('/students', authMiddleware, parentMiddleware, async (req, res) => {
   res.status(201).json({ id, name, email, class: cls, balance: Number(balance) });
 });
 
-// PUT /parent/child/:studentId — edit own child's name/class
+// PUT /parent/child/:studentId — edit own child's name/class/daily limits/allergies
 router.put('/child/:studentId', authMiddleware, parentMiddleware, async (req, res) => {
-  const { name, class: cls } = req.body;
+  const { name, class: cls, dailyLimitAmount, dailyLimitCount, allergies } = req.body;
   if (!(await requireOwnChild(req, res, req.params.studentId))) return;
 
   if (name) {
@@ -165,10 +151,59 @@ router.put('/child/:studentId', authMiddleware, parentMiddleware, async (req, re
     }
   }
 
-  await db.prepare('UPDATE students SET name = COALESCE(?, name), class = COALESCE(?, class) WHERE id = ?')
-    .run(name || null, cls || null, req.params.studentId);
+  const current = await db.prepare(
+    'SELECT daily_limit_amount, daily_limit_count, allergies FROM students WHERE id = ?'
+  ).get(req.params.studentId);
+
+  const toNullableNumber = (v) => (v === undefined ? undefined : (v === null || v === '' ? null : Number(v)));
+  const toNullableString = (v) => (v === undefined ? undefined : (v === null ? null : String(v).trim() || null));
+  const newAmount    = toNullableNumber(dailyLimitAmount);
+  const newCount     = toNullableNumber(dailyLimitCount);
+  const newAllergies = toNullableString(allergies);
+
+  await db.prepare(`
+    UPDATE students SET
+      name = COALESCE(?, name),
+      class = COALESCE(?, class),
+      daily_limit_amount = ?,
+      daily_limit_count = ?,
+      allergies = ?
+    WHERE id = ?
+  `).run(
+    name || null, cls || null,
+    newAmount !== undefined ? newAmount : current.daily_limit_amount,
+    newCount !== undefined ? newCount : current.daily_limit_count,
+    newAllergies !== undefined ? newAllergies : current.allergies,
+    req.params.studentId
+  );
 
   res.json({ message: 'Child updated' });
+});
+
+// POST /parent/child/:studentId/emergency-fund — deposit into own child's emergency fund.
+// This balance is kept separate from the spendable wallet and is only drawn on
+// automatically at payment time if the main balance runs short (see wallet.js).
+router.post('/child/:studentId/emergency-fund', authMiddleware, parentMiddleware, async (req, res) => {
+  const { amount, note } = req.body;
+  if (!amount || amount <= 0) return res.status(400).json({ error: 'amount required' });
+  if (!(await requireOwnChild(req, res, req.params.studentId))) return;
+
+  const student = await db.prepare('SELECT * FROM students WHERE id = ?').get(req.params.studentId);
+  if (!student) return res.status(404).json({ error: 'Student not found' });
+
+  const newEmergencyBalance = (student.emergency_balance || 0) + Number(amount);
+  await db.prepare('UPDATE students SET emergency_balance = ? WHERE id = ?')
+    .run(newEmergencyBalance, req.params.studentId);
+
+  await db.prepare(`
+    INSERT INTO transactions (id, student_id, type, amount, description, merchant, balance_after, emergency_amount)
+    VALUES (?, ?, 'credit', ?, ?, 'Parent Emergency Fund', ?, ?)
+  `).run(
+    uuidv4(), req.params.studentId, Number(amount), note || 'Emergency Fund Deposit',
+    student.balance, Number(amount)
+  );
+
+  res.json({ message: 'Emergency fund topped up', emergencyBalance: newEmergencyBalance });
 });
 
 // POST /parent/nfc/register — register an NFC card for the caller's own child
@@ -201,6 +236,13 @@ router.patch('/nfc/:cardId/deactivate', authMiddleware, parentMiddleware, async 
 
   await db.prepare('UPDATE cards SET active = 0 WHERE id = ?').run(req.params.cardId);
   res.json({ message: 'Card deactivated' });
+});
+
+// PUT /parent/profile — update the caller's own contact phone number
+router.put('/profile', authMiddleware, parentMiddleware, async (req, res) => {
+  const { phone } = req.body;
+  await db.prepare('UPDATE students SET phone = ? WHERE id = ?').run(phone || null, req.user.id);
+  res.json({ phone: phone || null });
 });
 
 module.exports = router;

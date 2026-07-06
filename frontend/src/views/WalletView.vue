@@ -56,6 +56,10 @@
                 <p class="sc-val">₹{{ totalToppedUp.toFixed(0) }}</p>
                 <p class="sc-lbl">Recent Top-Ups</p>
               </div>
+              <div class="stat-card" style="--sc:#E4572E;--scl:#FDE4DA">
+                <p class="sc-val">₹{{ (auth.selectedChild?.emergency_balance ?? 0).toFixed(0) }}</p>
+                <p class="sc-lbl">Emergency Fund</p>
+              </div>
             </div>
 
             <!-- Wallet card -->
@@ -105,6 +109,35 @@
                 <span v-else>Add ₹{{ topupAmount || 0 }} to Wallet</span>
               </button>
               <p v-if="topupMsg" class="topup-msg" :class="topupMsgClass">{{ topupMsg }}</p>
+            </div>
+
+            <!-- Emergency fund -->
+            <p class="section-title">Emergency Fund</p>
+            <div class="sp-card fade-up topup-card">
+              <p class="emergency-hint">
+                Kept separate from the wallet balance — only used automatically if a payment
+                comes up short.
+              </p>
+              <div class="amount-row">
+                <span class="rupee">₹</span>
+                <input v-model="emergencyAmount" type="number" placeholder="0" class="amount-input" />
+              </div>
+              <div class="chip-row">
+                <button
+                  v-for="a in [100, 200, 500, 1000]" :key="a"
+                  class="chip-btn" :class="{ active: Number(emergencyAmount) === a }"
+                  @click="emergencyAmount = String(a)"
+                >₹{{ a }}</button>
+              </div>
+              <button
+                class="topup-btn"
+                :disabled="!emergencyAmount || Number(emergencyAmount) <= 0 || emergencyLoading"
+                @click="doEmergencyDeposit"
+              >
+                <ion-spinner v-if="emergencyLoading" name="crescent" />
+                <span v-else>Add ₹{{ emergencyAmount || 0 }} to Emergency Fund</span>
+              </button>
+              <p v-if="emergencyMsg" class="topup-msg" :class="emergencyMsgClass">{{ emergencyMsg }}</p>
             </div>
 
             <!-- Recent activity -->
@@ -233,6 +266,11 @@ const topupMsg       = ref('');
 const topupMsgClass  = ref('');
 const switchingChild = ref(false);
 
+const emergencyAmount   = ref('');
+const emergencyLoading  = ref(false);
+const emergencyMsg      = ref('');
+const emergencyMsgClass = ref('');
+
 async function loadChildDetail() {
   if (!auth.selectedChildId) { childTransactions.value = []; return; }
   switchingChild.value = true;
@@ -289,6 +327,26 @@ async function doTopup() {
   }
 }
 
+async function doEmergencyDeposit() {
+  if (!auth.selectedChildId) return;
+  emergencyLoading.value = true;
+  emergencyMsg.value     = '';
+  try {
+    const { data } = await api.post(`/parent/child/${auth.selectedChildId}/emergency-fund`, {
+      amount: Number(emergencyAmount.value),
+    });
+    auth.updateChildEmergencyBalance(auth.selectedChildId, data.emergencyBalance);
+    emergencyMsg.value      = `Success! Emergency fund: ₹${data.emergencyBalance.toFixed(2)}`;
+    emergencyMsgClass.value = 'success';
+    emergencyAmount.value   = '';
+  } catch (e: any) {
+    emergencyMsg.value      = e?.response?.data?.error || 'Deposit failed';
+    emergencyMsgClass.value = 'error';
+  } finally {
+    emergencyLoading.value = false;
+  }
+}
+
 async function refresh(event: any) { await loadData(); event.target.complete(); }
 
 function logout() { auth.logout(); router.replace('/login'); }
@@ -330,6 +388,7 @@ onMounted(loadData);
 
 /* Top up card */
 .topup-card { margin: 4px 16px 0; padding: 16px; }
+.emergency-hint { font-size: 12px; color: var(--sp-subtext); margin: 0 0 12px; }
 .amount-row {
   display: flex; align-items: center; gap: 4px;
   background: var(--sp-bg); border-radius: 12px; padding: 0 14px;

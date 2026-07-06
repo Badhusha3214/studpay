@@ -41,7 +41,7 @@ router.post('/lookup', authMiddleware, shopOwnerMiddleware, async (req, res) => 
   if (!card) return res.status(404).json({ error: 'Card not registered or inactive' });
 
   const student = await db.prepare(
-    'SELECT id, name, email, class, balance FROM students WHERE id = ?'
+    'SELECT id, name, email, class, balance, allergies FROM students WHERE id = ?'
   ).get(card.student_id);
 
   res.json({ card, student });

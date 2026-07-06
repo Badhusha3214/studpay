@@ -101,6 +101,7 @@ async function startScanFlow() {
       name: student.name,
       class: student.class,
       balance: student.balance,
+      allergies: student.allergies,
       uid,
     });
 

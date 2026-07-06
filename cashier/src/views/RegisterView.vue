@@ -10,41 +10,44 @@
       </div>
 
       <div class="login-card fade-up">
-        <h2 class="form-title">Staff Sign In</h2>
-        <p class="form-sub">Use your school admin account</p>
+        <h2 class="form-title">Create Shop Account</h2>
+        <p class="form-sub">Register a new shop owner login</p>
+
+        <div class="field-group">
+          <label>Full Name</label>
+          <ion-input v-model="name" placeholder="e.g. Book Store Owner" class="c-input" autocomplete="name" />
+        </div>
 
         <div class="field-group">
           <label>Email</label>
           <ion-input
-            v-model="email"
-            type="email"
-            placeholder="admin@studpay.school"
-            class="c-input"
-            autocomplete="email"
+            v-model="email" type="email" placeholder="you@studpay.school"
+            class="c-input" autocomplete="email"
           />
+        </div>
+
+        <div class="field-group">
+          <label>Shop / Merchant Name</label>
+          <ion-input v-model="merchantName" placeholder="e.g. School Book Store" class="c-input" />
         </div>
 
         <div class="field-group">
           <label>PIN</label>
           <ion-input
-            v-model="pin"
-            type="password"
-            placeholder="4-digit PIN"
-            :maxlength="4"
-            class="c-input"
-            @keyup.enter="doLogin"
+            v-model="pin" type="password" placeholder="4-6 digit PIN"
+            :maxlength="6" class="c-input"
           />
         </div>
 
-        <ion-button expand="block" class="login-btn" :disabled="loading" @click="doLogin">
+        <ion-button expand="block" class="login-btn" :disabled="loading" @click="doRegister">
           <ion-spinner v-if="loading" name="crescent" />
-          <span v-else>Open Terminal</span>
+          <span v-else>Create Account</span>
         </ion-button>
 
         <p v-if="errorMsg" class="error-msg">{{ errorMsg }}</p>
 
         <p class="switch-link">
-          New shop? <a @click="router.push('/register')">Create an Account</a>
+          Already have an account? <a @click="router.push('/login')">Sign In</a>
         </p>
       </div>
     </ion-content>
@@ -58,22 +61,32 @@ import { IonPage, IonContent, IonInput, IonButton, IonSpinner, IonIcon } from '@
 import { terminalOutline } from 'ionicons/icons';
 import { useCashierStore } from '@/store/cashier';
 
-const router   = useRouter();
-const store    = useCashierStore();
-const email    = ref('');
-const pin      = ref('');
-const loading  = ref(false);
-const errorMsg = ref('');
+const router  = useRouter();
+const store   = useCashierStore();
+const name         = ref('');
+const email        = ref('');
+const merchantName = ref('');
+const pin          = ref('');
+const loading      = ref(false);
+const errorMsg     = ref('');
 
-async function doLogin() {
-  if (!email.value || !pin.value) { errorMsg.value = 'Please fill all fields'; return; }
+async function doRegister() {
+  if (!name.value || !email.value || !merchantName.value || !pin.value) {
+    errorMsg.value = 'Please fill all fields';
+    return;
+  }
   loading.value  = true;
   errorMsg.value = '';
   try {
-    await store.login(email.value, pin.value.trim());
+    await store.register({
+      name: name.value,
+      email: email.value,
+      pin: pin.value.trim(),
+      merchantName: merchantName.value,
+    });
     router.replace('/pay');
   } catch (e: any) {
-    errorMsg.value = e?.response?.data?.error || e?.message || 'Login failed';
+    errorMsg.value = e?.response?.data?.error || e?.message || 'Registration failed';
   } finally {
     loading.value = false;
   }

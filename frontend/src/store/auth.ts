@@ -8,8 +8,11 @@ export interface Student {
   email: string;
   class: string;
   balance: number;
+  emergency_balance?: number;
+  allergies?: string | null;
   role: 'student' | 'parent' | 'shop_owner';
   merchant_name?: string;
+  phone?: string;
 }
 
 export interface Child {
@@ -18,7 +21,11 @@ export interface Child {
   email: string;
   class: string;
   balance: number;
+  emergency_balance: number;
+  allergies: string | null;
   card_uid: string | null;
+  daily_limit_amount: number | null;
+  daily_limit_count: number | null;
 }
 
 export const useAuthStore = defineStore('auth', () => {
@@ -33,6 +40,17 @@ export const useAuthStore = defineStore('auth', () => {
 
   async function login(email: string, pin: string) {
     const { data } = await api.post('/auth/login', { email, pin });
+    token.value   = data.token;
+    student.value = data.student;
+    localStorage.setItem('sp_token', data.token);
+    localStorage.setItem('sp_student', JSON.stringify(data.student));
+  }
+
+  async function register(payload: {
+    name: string; email: string; pin: string;
+    role: 'parent' | 'shop_owner'; phone?: string; merchantName?: string;
+  }) {
+    const { data } = await api.post('/auth/register', payload);
     token.value   = data.token;
     student.value = data.student;
     localStorage.setItem('sp_token', data.token);
@@ -55,6 +73,13 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  function updatePhone(phone: string) {
+    if (student.value) {
+      student.value.phone = phone;
+      localStorage.setItem('sp_student', JSON.stringify(student.value));
+    }
+  }
+
   async function loadChildren() {
     const { data } = await api.get('/parent/children');
     children.value = data;
@@ -66,10 +91,15 @@ export const useAuthStore = defineStore('auth', () => {
     if (child) child.balance = newBalance;
   }
 
+  function updateChildEmergencyBalance(childId: string, newEmergencyBalance: number) {
+    const child = children.value.find((c) => c.id === childId);
+    if (child) child.emergency_balance = newEmergencyBalance;
+  }
+
   return {
     token, student, isParent,
     children, selectedChildId, selectedChild,
-    login, logout, updateBalance,
-    loadChildren, updateChildBalance,
+    login, register, logout, updateBalance, updatePhone,
+    loadChildren, updateChildBalance, updateChildEmergencyBalance,
   };
 });

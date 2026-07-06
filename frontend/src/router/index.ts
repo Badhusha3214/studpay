@@ -5,6 +5,7 @@ import { useAuthStore } from '@/store/auth';
 const routes: Array<RouteRecordRaw> = [
   { path: '/', redirect: '/login' },
   { path: '/login', component: () => import('@/views/LoginView.vue') },
+  { path: '/register', component: () => import('@/views/RegisterView.vue') },
   {
     path: '/app',
     component: () => import('@/views/TabsLayout.vue'),

@@ -3,10 +3,13 @@ const { v4: uuidv4 } = require('uuid');
 const bcrypt = require('bcryptjs');
 const { db } = require('../db/schema');
 const { authMiddleware, shopOwnerMiddleware } = require('../middleware/auth');
+const { getParentFor } = require('../services/family');
 
 // GET /wallet/balance
 router.get('/balance', authMiddleware, async (req, res) => {
-  const student = await db.prepare('SELECT id, name, email, class, balance FROM students WHERE id = ?').get(req.user.id);
+  const student = await db.prepare(
+    'SELECT id, name, email, class, balance, emergency_balance, allergies FROM students WHERE id = ?'
+  ).get(req.user.id);
   if (!student) return res.status(404).json({ error: 'Student not found' });
   res.json(student);
 });
@@ -46,12 +49,18 @@ router.post('/pay', authMiddleware, async (req, res) => {
   const student = await db.prepare('SELECT * FROM students WHERE id = ?').get(req.user.id);
   if (!student) return res.status(404).json({ error: 'Student not found' });
 
-  if (student.balance < amount) {
+  const totalAvailable = student.balance + (student.emergency_balance || 0);
+  if (totalAvailable < amount) {
     return res.status(400).json({ error: 'Insufficient balance' });
   }
 
-  const newBalance = student.balance - Number(amount);
-  await db.prepare('UPDATE students SET balance = ? WHERE id = ?').run(newBalance, req.user.id);
+  // Draw from the main balance first; any shortfall is auto-covered by the emergency fund.
+  const fromMain = Math.min(student.balance, Number(amount));
+  const fromEmergency = Number(amount) - fromMain;
+  const newBalance = student.balance - fromMain;
+  const newEmergencyBalance = (student.emergency_balance || 0) - fromEmergency;
+  await db.prepare('UPDATE students SET balance = ?, emergency_balance = ? WHERE id = ?')
+    .run(newBalance, newEmergencyBalance, req.user.id);
 
   const txn = {
     id: uuidv4(),
@@ -61,14 +70,20 @@ router.post('/pay', authMiddleware, async (req, res) => {
     description: description || 'Payment',
     merchant: merchant || 'School',
     balance_after: newBalance,
+    emergency_amount: fromEmergency,
   };
 
   await db.prepare(`
-    INSERT INTO transactions (id, student_id, type, amount, description, merchant, balance_after)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(txn.id, txn.student_id, txn.type, txn.amount, txn.description, txn.merchant, txn.balance_after);
+    INSERT INTO transactions (id, student_id, type, amount, description, merchant, balance_after, emergency_amount)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(txn.id, txn.student_id, txn.type, txn.amount, txn.description, txn.merchant, txn.balance_after, txn.emergency_amount);
 
-  res.json({ message: 'Payment successful', transaction: txn, newBalance });
+  res.json({
+    message: fromEmergency > 0 ? 'Payment successful (emergency fund used)' : 'Payment successful',
+    transaction: txn,
+    newBalance,
+    emergencyBalance: newEmergencyBalance,
+  });
 });
 
 // POST /wallet/pay-by-nfc — cashier terminal: uid + student PIN + amount
@@ -89,12 +104,36 @@ router.post('/pay-by-nfc', authMiddleware, shopOwnerMiddleware, async (req, res)
   const validPin = bcrypt.compareSync(String(pin), card.pin_hash);
   if (!validPin) return res.status(401).json({ error: 'Invalid PIN' });
 
-  if (card.balance < amount) {
-    return res.status(400).json({ error: 'Insufficient balance' });
+  if (card.daily_limit_count != null || card.daily_limit_amount != null) {
+    const today = await db.prepare(`
+      SELECT COUNT(*)::int AS count, COALESCE(SUM(amount), 0) AS total
+      FROM transactions
+      WHERE student_id = ? AND type = 'debit' AND created_at::date = CURRENT_DATE
+    `).get(card.id);
+
+    if (card.daily_limit_count != null && today.count >= card.daily_limit_count) {
+      const parent = await getParentFor(card);
+      return res.status(400).json({ error: 'Daily transaction limit reached', parentPhone: parent?.phone || null });
+    }
+    if (card.daily_limit_amount != null && (today.total + Number(amount)) > card.daily_limit_amount) {
+      const parent = await getParentFor(card);
+      return res.status(400).json({ error: 'Daily spending limit exceeded', parentPhone: parent?.phone || null });
+    }
   }
 
-  const newBalance = card.balance - Number(amount);
-  await db.prepare('UPDATE students SET balance = ? WHERE id = ?').run(newBalance, card.id);
+  const totalAvailable = card.balance + (card.emergency_balance || 0);
+  if (totalAvailable < amount) {
+    const parent = await getParentFor(card);
+    return res.status(400).json({ error: 'Insufficient balance', parentPhone: parent?.phone || null });
+  }
+
+  // Draw from the main balance first; any shortfall is auto-covered by the emergency fund.
+  const fromMain = Math.min(card.balance, Number(amount));
+  const fromEmergency = Number(amount) - fromMain;
+  const newBalance = card.balance - fromMain;
+  const newEmergencyBalance = (card.emergency_balance || 0) - fromEmergency;
+  await db.prepare('UPDATE students SET balance = ?, emergency_balance = ? WHERE id = ?')
+    .run(newBalance, newEmergencyBalance, card.id);
 
   const txn = {
     id:           uuidv4(),
@@ -104,18 +143,25 @@ router.post('/pay-by-nfc', authMiddleware, shopOwnerMiddleware, async (req, res)
     description:  description || 'Payment',
     merchant:     merchant || 'School',
     balance_after: newBalance,
+    emergency_amount: fromEmergency,
     created_at:   new Date().toISOString().replace('T', ' ').slice(0, 19),
   };
 
   await db.prepare(`
-    INSERT INTO transactions (id, student_id, type, amount, description, merchant, balance_after)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(txn.id, txn.student_id, txn.type, txn.amount, txn.description, txn.merchant, txn.balance_after);
+    INSERT INTO transactions (id, student_id, type, amount, description, merchant, balance_after, emergency_amount)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(txn.id, txn.student_id, txn.type, txn.amount, txn.description, txn.merchant, txn.balance_after, txn.emergency_amount);
 
   res.json({
-    message: 'Payment successful',
+    message: fromEmergency > 0 ? 'Payment successful (emergency fund used)' : 'Payment successful',
     transaction: txn,
-    student: { name: card.name, class: card.class, newBalance },
+    student: {
+      name: card.name,
+      class: card.class,
+      newBalance,
+      emergencyBalance: newEmergencyBalance,
+      allergies: card.allergies || null,
+    },
   });
 });
 

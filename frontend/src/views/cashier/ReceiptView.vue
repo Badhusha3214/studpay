@@ -42,6 +42,10 @@
               <span>New Balance</span>
               <strong>₹{{ txn?.balance_after?.toFixed(2) }}</strong>
             </div>
+            <div v-if="txn?.emergency_amount" class="r-row emergency-row">
+              <span>Emergency Fund Used</span>
+              <strong>₹{{ txn.emergency_amount.toFixed(2) }}</strong>
+            </div>
           </div>
         </div>
 
@@ -125,6 +129,7 @@ function nextPayment() {
 .r-row strong { font-weight: 600; }
 .txn-id       { font-family: monospace; font-size: 12px; }
 .balance-row strong { color: var(--c-green); font-size: 15px; }
+.emergency-row strong { color: var(--c-orange); }
 
 .next-btn {
   --background: var(--c-green); --border-radius: 14px;

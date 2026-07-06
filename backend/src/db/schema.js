@@ -77,6 +77,39 @@ async function initDB() {
     "UPDATE students SET merchant_name = 'School Canteen' WHERE role = 'shop_owner' AND merchant_name IS NULL"
   );
 
+  // Add daily spending-limit columns (nullable — no limit set by default)
+  if (!cols.rows.some((c) => c.column_name === 'daily_limit_amount')) {
+    await pool.query('ALTER TABLE students ADD COLUMN daily_limit_amount REAL');
+  }
+  if (!cols.rows.some((c) => c.column_name === 'daily_limit_count')) {
+    await pool.query('ALTER TABLE students ADD COLUMN daily_limit_count INTEGER');
+  }
+
+  // Add phone column (parent's own contact number)
+  if (!cols.rows.some((c) => c.column_name === 'phone')) {
+    await pool.query('ALTER TABLE students ADD COLUMN phone TEXT');
+  }
+
+  // Add allergies column (parent-editable; surfaced to shop owners at checkout for food safety)
+  if (!cols.rows.some((c) => c.column_name === 'allergies')) {
+    await pool.query('ALTER TABLE students ADD COLUMN allergies TEXT');
+  }
+
+  // Add emergency fund balance — a separate reserve parents can deposit into.
+  // Kept apart from the spendable `balance`; only drawn on automatically when
+  // a payment's main balance is insufficient (see wallet.js).
+  if (!cols.rows.some((c) => c.column_name === 'emergency_balance')) {
+    await pool.query('ALTER TABLE students ADD COLUMN emergency_balance REAL NOT NULL DEFAULT 0');
+  }
+
+  // Track how much of each transaction drew on (or added to) the emergency fund
+  const txnCols = await pool.query(
+    "SELECT column_name FROM information_schema.columns WHERE table_name = 'transactions'"
+  );
+  if (!txnCols.rows.some((c) => c.column_name === 'emergency_amount')) {
+    await pool.query('ALTER TABLE transactions ADD COLUMN emergency_amount REAL NOT NULL DEFAULT 0');
+  }
+
   // Seed demo data only if empty, and never in production (predictable demo PINs
   // must not be auto-provisioned on a real deploy)
   const existing = await db.prepare('SELECT id FROM students WHERE email = ?').get('admin@studpay.school');

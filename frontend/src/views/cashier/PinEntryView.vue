@@ -25,13 +25,21 @@
           </div>
         </div>
 
+        <div v-if="store.scannedStudent?.allergies" class="allergy-banner fade-up">
+          <ion-icon :icon="warningOutline" />
+          <span>Allergy: {{ store.scannedStudent.allergies }}</span>
+        </div>
+
         <!-- PIN dots -->
         <p class="pin-prompt">Student: enter your PIN to confirm</p>
         <div class="pin-dots">
           <div v-for="i in 4" :key="i" class="pin-dot" :class="{ filled: entered.length >= i }" />
         </div>
 
-        <p v-if="errorMsg" class="pin-error">{{ errorMsg }}</p>
+        <p v-if="errorMsg" class="pin-error">
+          {{ errorMsg }}
+          <span v-if="parentPhone" class="parent-phone">Contact parent: {{ parentPhone }}</span>
+        </p>
 
         <!-- Keypad -->
         <div class="keypad">
@@ -55,8 +63,9 @@ import { ref, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import {
   IonPage, IonHeader, IonToolbar, IonTitle,
-  IonButtons, IonBackButton, IonContent,
+  IonButtons, IonBackButton, IonContent, IonIcon,
 } from '@ionic/vue';
+import { warningOutline } from 'ionicons/icons';
 import { useCashierStore } from '@/store/cashier';
 import { useAuthStore } from '@/store/auth';
 import api from '@/composables/useApi';
@@ -64,9 +73,10 @@ import api from '@/composables/useApi';
 const router  = useRouter();
 const store   = useCashierStore();
 const auth    = useAuthStore();
-const entered  = ref('');
-const errorMsg = ref('');
-const loading  = ref(false);
+const entered     = ref('');
+const errorMsg    = ref('');
+const parentPhone = ref('');
+const loading     = ref(false);
 
 const keys = ['1','2','3','4','5','6','7','8','9','⌫','0','✓'];
 
@@ -76,7 +86,7 @@ const initials = computed(() =>
 
 function pressKey(key: string) {
   if (loading.value) return;
-  if (key === '⌫') { entered.value = entered.value.slice(0, -1); errorMsg.value = ''; return; }
+  if (key === '⌫') { entered.value = entered.value.slice(0, -1); errorMsg.value = ''; parentPhone.value = ''; return; }
   if (key === '✓')  { confirm(); return; }
   if (key === '')   return;
   if (entered.value.length < 4) entered.value += key;
@@ -85,8 +95,9 @@ function pressKey(key: string) {
 
 async function confirm() {
   if (entered.value.length < 4) { errorMsg.value = 'Enter 4-digit PIN'; return; }
-  loading.value  = true;
-  errorMsg.value = '';
+  loading.value     = true;
+  errorMsg.value    = '';
+  parentPhone.value = '';
 
   try {
     const { data } = await api.post('/wallet/pay-by-nfc', {
@@ -108,8 +119,9 @@ async function confirm() {
 
     router.replace('/receipt');
   } catch (e: any) {
-    errorMsg.value = e?.response?.data?.error || 'Invalid PIN. Try again.';
-    entered.value  = '';
+    errorMsg.value    = e?.response?.data?.error || 'Invalid PIN. Try again.';
+    parentPhone.value = e?.response?.data?.parentPhone || '';
+    entered.value     = '';
   } finally {
     loading.value = false;
   }
@@ -148,8 +160,18 @@ async function confirm() {
 
 .pin-error {
   color: var(--c-orange); font-size: 13px; font-weight: 600;
-  margin: 4px 0 16px;
+  margin: 4px 0 16px; text-align: center;
 }
+.parent-phone { display: block; font-weight: 700; margin-top: 4px; }
+
+.allergy-banner {
+  display: flex; align-items: center; gap: 8px;
+  background: #FFF3D6; color: #B45309;
+  border-radius: 12px; padding: 10px 14px;
+  font-size: 13px; font-weight: 700;
+  width: 100%; max-width: 380px; margin: -14px 0 20px;
+}
+.allergy-banner ion-icon { font-size: 18px; flex-shrink: 0; }
 
 .keypad {
   display: grid; grid-template-columns: repeat(3, 72px);

@@ -20,6 +20,20 @@
       </div>
 
       <template v-else>
+        <!-- My contact number -->
+        <p class="sp-section-title">My Contact Number</p>
+        <div class="sp-card fade-up profile-card">
+          <div class="phone-row">
+            <input v-model="phone" type="tel" placeholder="e.g. 9876543210" class="form-input" />
+            <ion-button class="phone-save-btn" :disabled="phoneLoading" @click="savePhone">
+              <ion-spinner v-if="phoneLoading" name="crescent" />
+              <span v-else>Save</span>
+            </ion-button>
+          </div>
+          <p class="form-hint">Shown to the shop/cashier if a payment fails, so they can reach you</p>
+          <p v-if="phoneMsg" class="form-msg" :class="phoneMsgClass">{{ phoneMsg }}</p>
+        </div>
+
         <div v-if="auth.children.length === 0" class="empty-state">
           <ion-icon :icon="peopleOutline" />
           <p>No children linked yet</p>
@@ -37,6 +51,9 @@
                   <ion-icon :icon="closeCircleOutline" class="badge-x" @click.stop="deactivateCard(c)" />
                 </span>
                 <span v-else class="badge no-card">No card</span>
+                <span v-if="c.allergies" class="badge allergy">
+                  <ion-icon :icon="warningOutline" /> {{ c.allergies }}
+                </span>
               </div>
             </div>
             <button class="edit-btn" @click="openEdit(c)">
@@ -158,6 +175,21 @@
             <label>Class / Grade</label>
             <input v-model="editForm.cls" class="form-input" />
           </div>
+          <div class="form-group">
+            <label>Daily Spending Limit (₹)</label>
+            <input v-model="editForm.dailyLimitAmount" type="number" placeholder="No limit" class="form-input" />
+            <p class="form-hint">Leave blank for no limit</p>
+          </div>
+          <div class="form-group">
+            <label>Max Transactions / Day</label>
+            <input v-model="editForm.dailyLimitCount" type="number" placeholder="No limit" class="form-input" />
+            <p class="form-hint">Leave blank for no limit</p>
+          </div>
+          <div class="form-group">
+            <label>Allergies</label>
+            <input v-model="editForm.allergies" placeholder="e.g. Peanuts, Dairy" class="form-input" />
+            <p class="form-hint">Shown to shop owners at checkout for food safety. Leave blank if none.</p>
+          </div>
           <ion-button
             expand="block" class="link-btn"
             :disabled="!editForm.name || !editForm.cls || editLoading"
@@ -181,6 +213,7 @@ import {
 } from '@ionic/vue';
 import {
   peopleOutline, wifiOutline, createOutline, personAddOutline, trashOutline, closeCircleOutline,
+  warningOutline,
 } from 'ionicons/icons';
 import api from '@/composables/useApi';
 import { useNfc } from '@/composables/useNfc';
@@ -198,6 +231,27 @@ async function load() {
   loading.value = true;
   try { await auth.loadChildren(); }
   finally { loading.value = false; }
+}
+
+// My contact number
+const phone         = ref(auth.student?.phone ?? '');
+const phoneLoading  = ref(false);
+const phoneMsg      = ref('');
+const phoneMsgClass = ref('');
+
+async function savePhone() {
+  phoneLoading.value = true; phoneMsg.value = '';
+  try {
+    const { data } = await api.put('/parent/profile', { phone: phone.value });
+    auth.updatePhone(data.phone);
+    phoneMsg.value      = 'Saved!';
+    phoneMsgClass.value = 'success';
+  } catch (e: any) {
+    phoneMsg.value      = e?.response?.data?.error || 'Failed to save';
+    phoneMsgClass.value = 'error';
+  } finally {
+    phoneLoading.value = false;
+  }
 }
 
 async function refresh(event: any) { await load(); event.target.complete(); }
@@ -246,10 +300,15 @@ const showEdit     = ref(false);
 const editLoading  = ref(false);
 const editMsg      = ref('');
 const editMsgClass = ref('');
-const editForm     = ref({ id: '', name: '', cls: '' });
+const editForm     = ref({ id: '', name: '', cls: '', dailyLimitAmount: '', dailyLimitCount: '', allergies: '' });
 
 function openEdit(c: any) {
-  editForm.value = { id: c.id, name: c.name, cls: c.class };
+  editForm.value = {
+    id: c.id, name: c.name, cls: c.class,
+    dailyLimitAmount: c.daily_limit_amount ?? '',
+    dailyLimitCount: c.daily_limit_count ?? '',
+    allergies: c.allergies ?? '',
+  };
   editMsg.value  = '';
   showEdit.value = true;
 }
@@ -260,6 +319,9 @@ async function submitEdit() {
     await api.put(`/parent/child/${editForm.value.id}`, {
       name: editForm.value.name,
       class: editForm.value.cls,
+      dailyLimitAmount: editForm.value.dailyLimitAmount === '' ? null : Number(editForm.value.dailyLimitAmount),
+      dailyLimitCount: editForm.value.dailyLimitCount === '' ? null : Number(editForm.value.dailyLimitCount),
+      allergies: editForm.value.allergies === '' ? null : editForm.value.allergies,
     });
     editMsg.value      = 'Saved!';
     editMsgClass.value = 'success';
@@ -362,6 +424,11 @@ onMounted(load);
   background: rgba(0, 0, 0, 0.35);
   display: flex; align-items: center; justify-content: center;
 }
+.profile-card { padding: 16px; }
+.phone-row { display: flex; gap: 8px; align-items: center; }
+.phone-row .form-input { flex: 1; }
+.phone-save-btn { --background: var(--sp-purple); --border-radius: 10px; height: 44px; flex-shrink: 0; margin: 0; }
+
 .children-list { padding: 4px 0; }
 .child-card {
   display: flex; align-items: center; gap: 12px;
@@ -385,6 +452,7 @@ onMounted(load);
 }
 .badge.nfc     { background: var(--sp-purple-light); color: var(--sp-purple); font-family: monospace; }
 .badge.no-card { background: var(--sp-border); color: var(--sp-subtext); }
+.badge.allergy { background: var(--sp-orange-light); color: var(--sp-orange); }
 .badge-x { font-size: 13px; cursor: pointer; margin-left: 2px; }
 .edit-btn, .remove-btn {
   width: 36px; height: 36px; border-radius: 10px; border: none;

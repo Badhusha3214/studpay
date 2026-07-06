@@ -6,6 +6,7 @@ export interface Student {
   class: string;
   balance: number;
   uid: string;
+  allergies?: string | null;
 }
 
 export interface Transaction {
@@ -14,6 +15,7 @@ export interface Transaction {
   description: string;
   merchant: string;
   balance_after: number;
+  emergency_amount?: number;
   created_at: string;
 }
 

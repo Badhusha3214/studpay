@@ -12,48 +12,65 @@
         <p class="tagline">Smart payments for smart students</p>
       </div>
 
-      <!-- Login card -->
+      <!-- Register card -->
       <div class="login-card fade-up">
-        <h2 class="form-title">Welcome back</h2>
-        <p class="form-sub">Sign in to your school wallet</p>
+        <h2 class="form-title">Create Account</h2>
+        <p class="form-sub">Sign up as a parent or a shop owner</p>
+
+        <div class="role-toggle">
+          <button
+            type="button" class="role-btn" :class="{ active: role === 'parent' }"
+            @click="role = 'parent'"
+          >Parent</button>
+          <button
+            type="button" class="role-btn" :class="{ active: role === 'shop_owner' }"
+            @click="role = 'shop_owner'"
+          >Shop Owner</button>
+        </div>
+
+        <div class="field-group">
+          <label>Full Name</label>
+          <ion-input v-model="name" placeholder="e.g. Lakshmi Menon" class="sp-input" autocomplete="name" />
+        </div>
 
         <div class="field-group">
           <label>Email</label>
           <ion-input
-            v-model="email"
-            type="email"
-            placeholder="your@student.school"
-            class="sp-input"
-            autocomplete="email"
+            v-model="email" type="email" placeholder="you@example.com"
+            class="sp-input" autocomplete="email"
           />
+        </div>
+
+        <div v-if="role === 'shop_owner'" class="field-group">
+          <label>Shop / Merchant Name</label>
+          <ion-input v-model="merchantName" placeholder="e.g. School Canteen" class="sp-input" />
+        </div>
+
+        <div v-if="role === 'parent'" class="field-group">
+          <label>Contact Phone (optional)</label>
+          <ion-input v-model="phone" type="tel" placeholder="e.g. 9876543210" class="sp-input" />
         </div>
 
         <div class="field-group">
           <label>PIN</label>
           <ion-input
-            v-model="pin"
-            type="password"
-            placeholder="4-digit PIN"
-            :maxlength="4"
-            class="sp-input"
-            @keyup.enter="doLogin"
+            v-model="pin" type="password" placeholder="4-6 digit PIN"
+            :maxlength="6" class="sp-input"
           />
         </div>
 
         <ion-button
-          expand="block"
-          class="login-btn"
-          :disabled="loading"
-          @click="doLogin"
+          expand="block" class="login-btn" :disabled="loading"
+          @click="doRegister"
         >
           <ion-spinner v-if="loading" name="crescent" />
-          <span v-else>Sign In</span>
+          <span v-else>Create Account</span>
         </ion-button>
 
         <p v-if="errorMsg" class="error-msg">{{ errorMsg }}</p>
 
         <p class="switch-link">
-          New here? <a @click="router.push('/register')">Create an Account</a>
+          Already have an account? <a @click="router.push('/login')">Sign In</a>
         </p>
       </div>
     </ion-content>
@@ -69,22 +86,42 @@ import {
 import { cardOutline } from 'ionicons/icons';
 import { useAuthStore } from '@/store/auth';
 
-const router   = useRouter();
-const auth     = useAuthStore();
-const email    = ref('');
-const pin      = ref('');
-const loading  = ref(false);
-const errorMsg = ref('');
+const router = useRouter();
+const auth   = useAuthStore();
 
-async function doLogin() {
-  if (!email.value || !pin.value) { errorMsg.value = 'Please fill all fields'; return; }
+const role         = ref<'parent' | 'shop_owner'>('parent');
+const name         = ref('');
+const email        = ref('');
+const phone        = ref('');
+const merchantName = ref('');
+const pin          = ref('');
+const loading      = ref(false);
+const errorMsg     = ref('');
+
+async function doRegister() {
+  if (!name.value || !email.value || !pin.value) {
+    errorMsg.value = 'Please fill all required fields';
+    return;
+  }
+  if (role.value === 'shop_owner' && !merchantName.value) {
+    errorMsg.value = 'Shop / merchant name is required';
+    return;
+  }
+
   loading.value  = true;
   errorMsg.value = '';
   try {
-    await auth.login(email.value, pin.value.trim());
+    await auth.register({
+      name: name.value,
+      email: email.value,
+      pin: pin.value.trim(),
+      role: role.value,
+      phone: phone.value || undefined,
+      merchantName: merchantName.value || undefined,
+    });
     router.replace(auth.student?.role === 'shop_owner' ? '/pay' : '/app/wallet');
   } catch (e: any) {
-    errorMsg.value = e?.response?.data?.error || 'Login failed. Check your details.';
+    errorMsg.value = e?.response?.data?.error || 'Registration failed. Please try again.';
   } finally {
     loading.value = false;
   }
@@ -124,7 +161,18 @@ async function doLogin() {
 }
 
 .form-title { font-size: 24px; font-weight: 800; margin: 0; color: var(--sp-text); }
-.form-sub   { color: var(--sp-subtext); font-size: 14px; margin: 4px 0 28px; }
+.form-sub   { color: var(--sp-subtext); font-size: 14px; margin: 4px 0 22px; }
+
+.role-toggle {
+  display: flex; gap: 8px; background: var(--sp-bg);
+  border-radius: 12px; padding: 4px; margin-bottom: 20px;
+}
+.role-btn {
+  flex: 1; border: none; background: transparent; cursor: pointer;
+  padding: 10px 0; border-radius: 9px; font-size: 14px; font-weight: 700;
+  color: var(--sp-subtext);
+}
+.role-btn.active { background: var(--sp-purple); color: white; }
 
 .field-group { margin-bottom: 18px; }
 .field-group label {
