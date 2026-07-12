@@ -38,6 +38,29 @@ const routes: Array<RouteRecordRaw> = [
     component: () => import('@/views/cashier/DashboardView.vue'),
     meta: { requiresAuth: true, allowedRoles: ['shop_owner'] },
   },
+  {
+    path: '/orders',
+    component: () => import('@/views/cashier/OrdersView.vue'),
+    meta: { requiresAuth: true, allowedRoles: ['shop_owner'] },
+  },
+  {
+    path: '/admin',
+    component: () => import('@/views/admin/AdminLayout.vue'),
+    meta: { requiresAuth: true, allowedRoles: ['school_admin'] },
+    children: [
+      { path: '', redirect: '/admin/dashboard' },
+      { path: 'dashboard', component: () => import('@/views/admin/DashboardView.vue') },
+      { path: 'students', component: () => import('@/views/admin/StudentsView.vue') },
+      { path: 'students/bulk-import', component: () => import('@/views/admin/BulkImportView.vue') },
+      { path: 'analytics', component: () => import('@/views/admin/AnalyticsView.vue') },
+      { path: 'cards', component: () => import('@/views/admin/CardsView.vue') },
+      { path: 'staff', component: () => import('@/views/admin/StaffAccountsView.vue') },
+      { path: 'shops', component: () => import('@/views/admin/ShopsView.vue') },
+      { path: 'approvals', component: () => import('@/views/admin/ApprovalsView.vue') },
+      { path: 'reports', component: () => import('@/views/admin/ReportsView.vue') },
+      { path: 'refunds', component: () => import('@/views/admin/RefundsView.vue') },
+    ],
+  },
 ];
 
 const router = createRouter({
@@ -51,7 +74,9 @@ router.beforeEach((to) => {
 
   const allowedRoles = to.meta.allowedRoles as string[] | undefined;
   if (allowedRoles && auth.student && !allowedRoles.includes(auth.student.role)) {
-    return auth.student.role === 'shop_owner' ? '/pay' : '/app/wallet';
+    if (auth.student.role === 'shop_owner') return '/pay';
+    if (auth.student.role === 'school_admin') return '/admin/dashboard';
+    return '/app/wallet';
   }
 });
 

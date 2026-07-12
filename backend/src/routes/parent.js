@@ -1,10 +1,12 @@
 const router = require('express').Router();
 const { v4: uuidv4 } = require('uuid');
 const bcrypt = require('bcryptjs');
-const { db } = require('../db/schema');
+const { db, withTransaction } = require('../db/schema');
 const { authMiddleware, parentMiddleware } = require('../middleware/auth');
 const { registerCard } = require('../services/cards');
 const { surnameOf, domainOf, getChildrenFor } = require('../services/family');
+const { parseAmount } = require('../utils/validate');
+const { HttpError } = require('../utils/errors');
 
 function slugify(name) {
   return name.trim().toLowerCase().replace(/\s+/g, '.').replace(/[^a-z0-9.]/g, '');
@@ -87,25 +89,33 @@ router.get('/child/:studentId', authMiddleware, parentMiddleware, async (req, re
 
 // POST /parent/topup — parent tops up their own child's wallet
 router.post('/topup', authMiddleware, parentMiddleware, async (req, res) => {
-  const { studentId, amount, note } = req.body;
-  if (!studentId || !amount || amount <= 0) {
+  const { studentId, note } = req.body;
+  const amount = parseAmount(req.body.amount);
+  if (!studentId || amount === null) {
     return res.status(400).json({ error: 'studentId and amount required' });
   }
 
   if (!(await requireOwnChild(req, res, studentId))) return;
 
-  const student = await db.prepare('SELECT * FROM students WHERE id = ?').get(studentId);
-  if (!student) return res.status(404).json({ error: 'Student not found' });
+  try {
+    const result = await withTransaction(async (trx) => {
+      const student = await trx.prepare('SELECT * FROM students WHERE id = ? FOR UPDATE').get(studentId);
+      if (!student) throw new HttpError(404, 'Student not found');
 
-  const newBalance = student.balance + Number(amount);
-  await db.prepare('UPDATE students SET balance = ? WHERE id = ?').run(newBalance, studentId);
+      const newBalance = student.balance + amount;
+      await trx.prepare('UPDATE students SET balance = ? WHERE id = ?').run(newBalance, studentId);
+      await trx.prepare(`
+        INSERT INTO transactions (id, student_id, type, amount, description, merchant, balance_after)
+        VALUES (?, ?, 'credit', ?, ?, 'Parent Top-Up', ?)
+      `).run(uuidv4(), studentId, amount, note || 'Wallet Top-Up by Parent', newBalance);
 
-  await db.prepare(`
-    INSERT INTO transactions (id, student_id, type, amount, description, merchant, balance_after)
-    VALUES (?, ?, 'credit', ?, ?, 'Parent Top-Up', ?)
-  `).run(uuidv4(), studentId, Number(amount), note || 'Wallet Top-Up by Parent', newBalance);
-
-  res.json({ message: 'Wallet topped up successfully', newBalance });
+      return { message: 'Wallet topped up successfully', newBalance };
+    });
+    res.json(result);
+  } catch (err) {
+    if (err instanceof HttpError) return res.status(err.status).json(err.body);
+    throw err;
+  }
 });
 
 // POST /parent/students — create a new child linked to the calling parent
@@ -184,26 +194,35 @@ router.put('/child/:studentId', authMiddleware, parentMiddleware, async (req, re
 // This balance is kept separate from the spendable wallet and is only drawn on
 // automatically at payment time if the main balance runs short (see wallet.js).
 router.post('/child/:studentId/emergency-fund', authMiddleware, parentMiddleware, async (req, res) => {
-  const { amount, note } = req.body;
-  if (!amount || amount <= 0) return res.status(400).json({ error: 'amount required' });
+  const { note } = req.body;
+  const amount = parseAmount(req.body.amount);
+  if (amount === null) return res.status(400).json({ error: 'amount required' });
   if (!(await requireOwnChild(req, res, req.params.studentId))) return;
 
-  const student = await db.prepare('SELECT * FROM students WHERE id = ?').get(req.params.studentId);
-  if (!student) return res.status(404).json({ error: 'Student not found' });
+  try {
+    const result = await withTransaction(async (trx) => {
+      const student = await trx.prepare('SELECT * FROM students WHERE id = ? FOR UPDATE').get(req.params.studentId);
+      if (!student) throw new HttpError(404, 'Student not found');
 
-  const newEmergencyBalance = (student.emergency_balance || 0) + Number(amount);
-  await db.prepare('UPDATE students SET emergency_balance = ? WHERE id = ?')
-    .run(newEmergencyBalance, req.params.studentId);
+      const newEmergencyBalance = (student.emergency_balance || 0) + amount;
+      await trx.prepare('UPDATE students SET emergency_balance = ? WHERE id = ?')
+        .run(newEmergencyBalance, req.params.studentId);
 
-  await db.prepare(`
-    INSERT INTO transactions (id, student_id, type, amount, description, merchant, balance_after, emergency_amount)
-    VALUES (?, ?, 'credit', ?, ?, 'Parent Emergency Fund', ?, ?)
-  `).run(
-    uuidv4(), req.params.studentId, Number(amount), note || 'Emergency Fund Deposit',
-    student.balance, Number(amount)
-  );
+      await trx.prepare(`
+        INSERT INTO transactions (id, student_id, type, amount, description, merchant, balance_after, emergency_amount)
+        VALUES (?, ?, 'credit', ?, ?, 'Parent Emergency Fund', ?, ?)
+      `).run(
+        uuidv4(), req.params.studentId, amount, note || 'Emergency Fund Deposit',
+        student.balance, amount
+      );
 
-  res.json({ message: 'Emergency fund topped up', emergencyBalance: newEmergencyBalance });
+      return { message: 'Emergency fund topped up', emergencyBalance: newEmergencyBalance };
+    });
+    res.json(result);
+  } catch (err) {
+    if (err instanceof HttpError) return res.status(err.status).json(err.body);
+    throw err;
+  }
 });
 
 // POST /parent/nfc/register — register an NFC card for the caller's own child
@@ -281,9 +300,11 @@ router.post('/pending-approvals/:id/reject', authMiddleware, parentMiddleware, a
   if (!(await requireOwnChild(req, res, pending.student_id))) return;
 
   const rejected = await db.prepare(
-    "UPDATE pending_purchases SET status = 'rejected' WHERE id = ? AND status = 'pending' RETURNING id"
+    "UPDATE pending_purchases SET status = 'rejected', resolved_at = NOW() WHERE id = ? AND status = 'pending' RETURNING id"
   ).get(req.params.id);
   if (!rejected) return res.status(409).json({ error: 'This purchase was already resolved' });
+
+  await db.prepare("UPDATE orders SET status = 'rejected' WHERE pending_purchase_id = ?").run(req.params.id);
 
   res.json({ message: 'Purchase rejected' });
 });

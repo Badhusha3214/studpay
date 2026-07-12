@@ -2,26 +2,40 @@ const router = require('express').Router();
 const bcrypt = require('bcryptjs');
 const { v4: uuidv4 } = require('uuid');
 const { db } = require('../db/schema');
-const { authMiddleware, shopOwnerMiddleware } = require('../middleware/auth');
+const { authMiddleware, shopOwnerMiddleware, staffMiddleware } = require('../middleware/auth');
+const { logAction } = require('../services/auditLog');
 
-// GET /students — list all students with card info
-router.get('/', authMiddleware, shopOwnerMiddleware, async (req, res) => {
+const STAFF_ROLES = ['shop_owner', 'school_admin'];
+
+// GET /students — list all students with card info. Optional filters:
+// ?q= (name/email search), ?class= (exact match), ?active=all (default
+// active-only, preserving the cashier dashboard's existing no-params call).
+router.get('/', authMiddleware, staffMiddleware, async (req, res) => {
+  const { q, class: cls, active } = req.query;
+
+  const conditions = ["s.role = 'student'"];
+  const params = [];
+
+  if (active !== 'all') conditions.push('s.active = 1');
+  if (cls) { conditions.push('s.class = ?'); params.push(cls); }
+  if (q) { conditions.push('(s.name ILIKE ? OR s.email ILIKE ?)'); params.push(`%${q}%`, `%${q}%`); }
+
   const students = await db.prepare(`
-    SELECT s.id, s.name, s.email, s.class, s.balance, s.role, s.created_at,
+    SELECT s.id, s.name, s.email, s.class, s.balance, s.role, s.active, s.created_at,
            c.uid AS card_uid, c.active AS card_active, c.id AS card_id
     FROM students s
     LEFT JOIN cards c ON c.student_id = s.id AND c.active = 1
-    WHERE s.role = 'student' AND s.active = 1
+    WHERE ${conditions.join(' AND ')}
     ORDER BY s.name
-  `).all();
+  `).all(...params);
   res.json(students);
 });
 
 // GET /students/:id — single student with full details + transactions
 router.get('/:id', authMiddleware, async (req, res) => {
   const { id } = req.params;
-  // Students can only view their own profile; shop owners can view any
-  if (req.user.role !== 'shop_owner' && req.user.id !== id) {
+  // Students can only view their own profile; staff (shop owners, school admins) can view any
+  if (!STAFF_ROLES.includes(req.user.role) && req.user.id !== id) {
     return res.status(403).json({ error: 'Access denied' });
   }
 
@@ -79,17 +93,35 @@ router.put('/:id', authMiddleware, shopOwnerMiddleware, async (req, res) => {
   res.json({ message: 'Student updated' });
 });
 
-// DELETE /students/:id — archive student (soft delete: deactivate all cards + the account)
-router.delete('/:id', authMiddleware, shopOwnerMiddleware, async (req, res) => {
+// DELETE /students/:id — archive student (soft delete: deactivate all cards + the account).
+// No role filter on the target row — this also serves as "deactivate a staff
+// account" for the school-admin staff view (see routes/admin.js). Guarded
+// below so a shop_owner (staffMiddleware allows them here for deactivating
+// students) can't use this to deactivate another shop_owner or a
+// school_admin — only a school_admin may target a staff row.
+router.delete('/:id', authMiddleware, staffMiddleware, async (req, res) => {
+  const target = await db.prepare('SELECT role FROM students WHERE id = ?').get(req.params.id);
+  if (!target) return res.status(404).json({ error: 'Student not found' });
+  if (['shop_owner', 'school_admin'].includes(target.role) && req.user.role !== 'school_admin') {
+    return res.status(403).json({ error: 'Only a school admin can deactivate a staff account' });
+  }
+
   await db.prepare('UPDATE cards SET active = 0 WHERE student_id = ?').run(req.params.id);
   await db.prepare('UPDATE students SET active = 0 WHERE id = ?').run(req.params.id);
+
+  await logAction(db, {
+    actorId: req.user.id, actorRole: req.user.role, action: 'account_deactivated',
+    entity: target.role === 'student' ? 'students' : 'staff', entityId: req.params.id,
+    before: { active: 1 }, after: { active: 0 },
+  });
+
   res.json({ message: 'Student removed' });
 });
 
 // GET /students/:id/card-history — spending history for a specific card
 router.get('/:id/card-history', authMiddleware, async (req, res) => {
   const { id } = req.params;
-  if (req.user.role !== 'shop_owner' && req.user.id !== id) {
+  if (!STAFF_ROLES.includes(req.user.role) && req.user.id !== id) {
     return res.status(403).json({ error: 'Access denied' });
   }
 

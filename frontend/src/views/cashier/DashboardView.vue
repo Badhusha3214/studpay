@@ -8,6 +8,11 @@
           </ion-button>
         </ion-buttons>
         <ion-title>{{ auth.student?.merchant_name || 'Dashboard' }}</ion-title>
+        <ion-buttons slot="end">
+          <ion-button @click="router.push('/orders')">
+            <ion-icon :icon="receiptOutline" slot="icon-only" />
+          </ion-button>
+        </ion-buttons>
       </ion-toolbar>
     </ion-header>
 
@@ -172,18 +177,9 @@ import {
 import { useAuthStore } from '@/store/auth';
 import { useNfc } from '@/composables/useNfc';
 import api from '@/composables/useApi';
+import { CATEGORY_ORDER, CATEGORY_COLORS, CATEGORY_LABELS } from '@/composables/useCategoryMeta';
 
 interface MenuItem { id: string; name: string; category: string; price: number; active: number }
-
-const CATEGORY_ORDER  = ['junk', 'healthy', 'beverage', 'snack', 'meal', 'other'];
-const CATEGORY_COLORS: Record<string, string> = {
-  junk: '#2a78d6', healthy: '#1baf7a', beverage: '#eda100',
-  snack: '#008300', meal: '#4a3aa7', other: '#9a9a94',
-};
-const CATEGORY_LABELS: Record<string, string> = {
-  junk: 'Junk Food', healthy: 'Healthy', beverage: 'Beverage',
-  snack: 'Snack', meal: 'Meal', other: 'Other',
-};
 
 const router = useRouter();
 const auth   = useAuthStore();

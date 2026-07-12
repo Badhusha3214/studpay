@@ -4,6 +4,9 @@
       <ion-toolbar>
         <ion-title>{{ auth.student?.merchant_name || 'Cashier Terminal' }}</ion-title>
         <ion-buttons slot="end">
+          <ion-button @click="router.push('/orders')">
+            <ion-icon :icon="receiptOutline" slot="icon-only" />
+          </ion-button>
           <ion-button @click="router.push('/dashboard')">
             <ion-icon :icon="statsChartOutline" slot="icon-only" />
           </ion-button>
@@ -109,7 +112,7 @@ import {
   IonPage, IonHeader, IonToolbar, IonTitle, IonButtons, IonButton,
   IonContent, IonInput, IonIcon,
 } from '@ionic/vue';
-import { wifiOutline, logOutOutline, statsChartOutline } from 'ionicons/icons';
+import { wifiOutline, logOutOutline, statsChartOutline, receiptOutline } from 'ionicons/icons';
 import { useNfc } from '@/composables/useNfc';
 import { useCashierStore } from '@/store/cashier';
 import { useAuthStore } from '@/store/auth';

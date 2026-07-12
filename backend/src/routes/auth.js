@@ -3,9 +3,10 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 const { db } = require('../db/schema');
-
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const PIN_RE   = /^\d{4,6}$/;
+const { isLocked, lockedResponse, recordFailedAttempt, recordSuccess } = require('../services/pinAuth');
+const { createShopOwnerAccount, assertEmailFree } = require('../services/accounts');
+const { EMAIL_RE, PIN_RE } = require('../utils/validate');
+const { HttpError } = require('../utils/errors');
 
 function signToken(student) {
   return jwt.sign(
@@ -27,35 +28,32 @@ router.post('/register', async (req, res) => {
   if (!['parent', 'shop_owner'].includes(role)) {
     return res.status(400).json({ error: 'role must be parent or shop_owner' });
   }
-  if (!EMAIL_RE.test(email)) {
-    return res.status(400).json({ error: 'Enter a valid email address' });
+
+  try {
+    let student;
+    if (role === 'shop_owner') {
+      student = await createShopOwnerAccount({ name, email, pin, merchantName, phone });
+    } else {
+      if (!EMAIL_RE.test(email)) throw new HttpError(400, 'Enter a valid email address');
+      if (!PIN_RE.test(String(pin))) throw new HttpError(400, 'PIN must be 4-6 digits');
+      await assertEmailFree(email);
+
+      const id      = 'parent-' + uuidv4().slice(0, 8);
+      const pinHash = bcrypt.hashSync(String(pin), 10);
+
+      await db.prepare(`
+        INSERT INTO students (id, name, email, class, balance, pin_hash, role, phone)
+        VALUES (?, ?, ?, 'Parent', 0, ?, 'parent', ?)
+      `).run(id, name, email, pinHash, phone || null);
+
+      student = { id, name, email, class: 'Parent', balance: 0, role: 'parent', phone: phone || null };
+    }
+
+    res.status(201).json({ token: signToken(student), student });
+  } catch (err) {
+    if (err instanceof HttpError) return res.status(err.status).json(err.body);
+    throw err;
   }
-  if (!PIN_RE.test(String(pin))) {
-    return res.status(400).json({ error: 'PIN must be 4-6 digits' });
-  }
-  if (role === 'shop_owner' && !merchantName) {
-    return res.status(400).json({ error: 'merchantName is required for shop owner accounts' });
-  }
-
-  const existing = await db.prepare('SELECT id FROM students WHERE email = ?').get(email);
-  if (existing) return res.status(409).json({ error: 'Email already registered' });
-
-  const id      = (role === 'parent' ? 'parent-' : 'owner-') + uuidv4().slice(0, 8);
-  const pinHash = bcrypt.hashSync(String(pin), 10);
-  const cls     = role === 'parent' ? 'Parent' : 'Staff';
-
-  await db.prepare(`
-    INSERT INTO students (id, name, email, class, balance, pin_hash, role, merchant_name, phone)
-    VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?)
-  `).run(id, name, email, cls, pinHash, role, role === 'shop_owner' ? merchantName : null, phone || null);
-
-  const student = {
-    id, name, email, class: cls, balance: 0, role,
-    merchant_name: role === 'shop_owner' ? merchantName : null,
-    phone: phone || null,
-  };
-
-  res.status(201).json({ token: signToken(student), student });
 });
 
 // POST /auth/login  — email + PIN
@@ -67,8 +65,17 @@ router.post('/login', async (req, res) => {
   if (!student) return res.status(401).json({ error: 'Invalid credentials' });
   if (!student.active) return res.status(401).json({ error: 'This account has been deactivated' });
 
+  if (isLocked(student)) {
+    const { status, body } = lockedResponse(student);
+    return res.status(status).json(body);
+  }
+
   const valid = bcrypt.compareSync(String(pin), student.pin_hash);
-  if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
+  if (!valid) {
+    await recordFailedAttempt(db, student.id);
+    return res.status(401).json({ error: 'Invalid credentials' });
+  }
+  await recordSuccess(db, student.id);
 
   res.json({
     token: signToken(student),
@@ -87,10 +94,23 @@ router.post('/login', async (req, res) => {
 // POST /auth/change-pin
 router.post('/change-pin', async (req, res) => {
   const { email, oldPin, newPin } = req.body;
+  if (!PIN_RE.test(String(newPin))) {
+    return res.status(400).json({ error: 'New PIN must be 4-6 digits' });
+  }
+
   const student = await db.prepare('SELECT * FROM students WHERE email = ?').get(email);
-  if (!student || !bcrypt.compareSync(String(oldPin), student.pin_hash)) {
+  if (!student) return res.status(401).json({ error: 'Invalid credentials' });
+
+  if (isLocked(student)) {
+    const { status, body } = lockedResponse(student);
+    return res.status(status).json(body);
+  }
+
+  if (!bcrypt.compareSync(String(oldPin), student.pin_hash)) {
+    await recordFailedAttempt(db, student.id);
     return res.status(401).json({ error: 'Invalid credentials' });
   }
+  await recordSuccess(db, student.id);
 
   const newHash = bcrypt.hashSync(String(newPin), 10);
   await db.prepare('UPDATE students SET pin_hash = ? WHERE id = ?').run(newHash, student.id);

@@ -1,10 +1,10 @@
 const router = require('express').Router();
 const { db } = require('../db/schema');
-const { authMiddleware, shopOwnerMiddleware } = require('../middleware/auth');
+const { authMiddleware, shopOwnerMiddleware, staffMiddleware } = require('../middleware/auth');
 const { registerCard } = require('../services/cards');
 
 // GET /nfc/cards — list all NFC cards with student info
-router.get('/cards', authMiddleware, shopOwnerMiddleware, async (req, res) => {
+router.get('/cards', authMiddleware, staffMiddleware, async (req, res) => {
   const cards = await db.prepare(`
     SELECT c.id, c.uid, c.active, c.linked_at,
            s.id AS student_id, s.name, s.class, s.email, s.balance
@@ -16,7 +16,7 @@ router.get('/cards', authMiddleware, shopOwnerMiddleware, async (req, res) => {
 });
 
 // GET /nfc/cards/:uid — get a single card by UID
-router.get('/cards/:uid', authMiddleware, shopOwnerMiddleware, async (req, res) => {
+router.get('/cards/:uid', authMiddleware, staffMiddleware, async (req, res) => {
   const card = await db.prepare(`
     SELECT c.id, c.uid, c.active, c.linked_at,
            s.id AS student_id, s.name, s.class, s.email, s.balance
@@ -62,7 +62,7 @@ router.post('/register', authMiddleware, shopOwnerMiddleware, async (req, res) =
 });
 
 // PATCH /nfc/cards/:id/toggle — activate or deactivate a card
-router.patch('/cards/:id/toggle', authMiddleware, shopOwnerMiddleware, async (req, res) => {
+router.patch('/cards/:id/toggle', authMiddleware, staffMiddleware, async (req, res) => {
   const card = await db.prepare('SELECT * FROM cards WHERE id = ?').get(req.params.id);
   if (!card) return res.status(404).json({ error: 'Card not found' });
 

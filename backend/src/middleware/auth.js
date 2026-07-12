@@ -29,4 +29,23 @@ function parentMiddleware(req, res, next) {
   next();
 }
 
-module.exports = { authMiddleware, shopOwnerMiddleware, parentMiddleware };
+function schoolAdminMiddleware(req, res, next) {
+  if (req.user?.role !== 'school_admin') {
+    return res.status(403).json({ error: 'School admin access required' });
+  }
+  next();
+}
+
+// Widened check for endpoints that are already school-wide in scope (no
+// per-shop filter) and should be reachable by both a cashier and a school
+// admin — e.g. viewing/searching the student roster, card management.
+function staffMiddleware(req, res, next) {
+  if (!['shop_owner', 'school_admin'].includes(req.user?.role)) {
+    return res.status(403).json({ error: 'Staff access required' });
+  }
+  next();
+}
+
+module.exports = {
+  authMiddleware, shopOwnerMiddleware, parentMiddleware, schoolAdminMiddleware, staffMiddleware,
+};
