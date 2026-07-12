@@ -1,7 +1,8 @@
-const router = require('express').Router();
-const { db } = require('../db/schema');
-const { authMiddleware, parentMiddleware } = require('../middleware/auth');
-const { requireOwnChild } = require('./parent');
+import { Hono } from 'hono';
+import { authMiddleware, parentMiddleware } from '../middleware/auth.js';
+import { requireOwnChild } from './parent.js';
+
+const app = new Hono();
 
 const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 
@@ -25,10 +26,13 @@ function labelFor(score) {
 
 // GET /api/insights/:studentId/monthly?month=YYYY-MM
 // Categorized spending + a simple health score for a parent's own child.
-router.get('/:studentId/monthly', authMiddleware, parentMiddleware, async (req, res) => {
-  if (!(await requireOwnChild(req, res, req.params.studentId))) return;
+app.get('/:studentId/monthly', authMiddleware, parentMiddleware, async (c) => {
+  const db = c.get('db');
+  const user = c.get('user');
+  const studentId = c.req.param('studentId');
+  if (!(await requireOwnChild(db, user, studentId))) return c.json({ error: 'Not your child' }, 403);
 
-  const month = MONTH_RE.test(req.query.month || '') ? req.query.month : currentMonth();
+  const month = MONTH_RE.test(c.req.query('month') || '') ? c.req.query('month') : currentMonth();
   const [year, mon] = month.split('-').map(Number);
   const start = new Date(Date.UTC(year, mon - 1, 1)).toISOString();
   const end   = new Date(Date.UTC(year, mon, 1)).toISOString();
@@ -42,7 +46,7 @@ router.get('/:studentId/monthly', authMiddleware, parentMiddleware, async (req, 
     LEFT JOIN menu_items m ON m.id = t.item_id
     WHERE t.student_id = ? AND t.type = 'debit'
       AND t.created_at >= ? AND t.created_at < ?
-  `).all(req.params.studentId, start, end);
+  `).all(studentId, start, end);
 
   let totalSpend = 0;
   let earlyCount = 0;
@@ -92,8 +96,8 @@ router.get('/:studentId/monthly', authMiddleware, parentMiddleware, async (req, 
     .sort((a, b) => b.count - a.count || b.spend - a.spend)
     .slice(0, 3);
 
-  res.json({
-    studentId: req.params.studentId,
+  return c.json({
+    studentId,
     month,
     totalSpend: Number(totalSpend.toFixed(2)),
     transactionCount,
@@ -109,4 +113,4 @@ router.get('/:studentId/monthly', authMiddleware, parentMiddleware, async (req, 
   });
 });
 
-module.exports = router;
+export default app;

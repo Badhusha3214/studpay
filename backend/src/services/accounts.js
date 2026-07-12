@@ -1,10 +1,9 @@
-const bcrypt = require('bcryptjs');
-const { v4: uuidv4 } = require('uuid');
-const { db } = require('../db/schema');
-const { EMAIL_RE, PIN_RE } = require('../utils/validate');
-const { HttpError } = require('../utils/errors');
+import bcrypt from 'bcryptjs';
+import { v4 as uuidv4 } from 'uuid';
+import { EMAIL_RE, PIN_RE } from '../utils/validate.js';
+import { HttpError } from '../utils/errors.js';
 
-async function assertEmailFree(email) {
+export async function assertEmailFree(db, email) {
   const existing = await db.prepare('SELECT id FROM students WHERE email = ?').get(email);
   if (existing) throw new HttpError(409, 'Email already registered');
 }
@@ -16,14 +15,14 @@ async function assertEmailFree(email) {
 // Either `shopId` (assign to an existing shop, admin-only path) or
 // `merchantName` (create a brand-new shop, used by self-registration and by
 // admin when standing up a new shop's first cashier) must be given.
-async function createShopOwnerAccount({ name, email, pin, merchantName, phone, shopId }) {
+export async function createShopOwnerAccount(db, { name, email, pin, merchantName, phone, shopId }) {
   if (!name || !email || !pin || (!merchantName && !shopId)) {
     throw new HttpError(400, 'name, email, pin and merchantName (or shopId) are required');
   }
   if (!EMAIL_RE.test(email)) throw new HttpError(400, 'Enter a valid email address');
   if (!PIN_RE.test(String(pin))) throw new HttpError(400, 'PIN must be 4-6 digits');
 
-  await assertEmailFree(email);
+  await assertEmailFree(db, email);
 
   let shop;
   if (shopId) {
@@ -48,5 +47,3 @@ async function createShopOwnerAccount({ name, email, pin, merchantName, phone, s
     merchant_name: shop.name, phone: phone || null, shop_id: shop.id,
   };
 }
-
-module.exports = { createShopOwnerAccount, assertEmailFree };

@@ -1,13 +1,14 @@
-const router = require('express').Router();
-const { v4: uuidv4 } = require('uuid');
-const bcrypt = require('bcryptjs');
-const { db, withTransaction } = require('../db/schema');
-const { authMiddleware, shopOwnerMiddleware } = require('../middleware/auth');
-const { getParentFor } = require('../services/family');
-const { needsJunkApproval, APPROVAL_TIMEOUT_MS } = require('../services/approval');
-const { isLocked, lockedResponse, recordFailedAttempt, recordSuccess } = require('../services/pinAuth');
-const { parseAmount } = require('../utils/validate');
-const { HttpError } = require('../utils/errors');
+import { Hono } from 'hono';
+import { v4 as uuidv4 } from 'uuid';
+import bcrypt from 'bcryptjs';
+import { authMiddleware, shopOwnerMiddleware } from '../middleware/auth.js';
+import { getParentFor } from '../services/family.js';
+import { needsJunkApproval, APPROVAL_TIMEOUT_MS } from '../services/approval.js';
+import { isLocked, lockedResponse, recordFailedAttempt, recordSuccess } from '../services/pinAuth.js';
+import { parseAmount } from '../utils/validate.js';
+import { HttpError } from '../utils/errors.js';
+
+const app = new Hono();
 
 // Sequentially debits one or more line items against a student's balance
 // (falling back to the emergency fund per line), inserting one transaction
@@ -88,8 +89,8 @@ function paymentResponse(card, transactions, newBalance, newEmergencyBalance, is
 // then debits and records exactly like the immediate path would have. Runs
 // its own transaction + row lock since it's called well after the original
 // pay-by-nfc request's lock (if any) has been released.
-async function finalizePendingPurchase(pending) {
-  return withTransaction(async (trx) => {
+async function finalizePendingPurchase(db, pending) {
+  return db.withTransaction(async (trx) => {
     const card = await trx.prepare('SELECT * FROM students WHERE id = ? FOR UPDATE').get(pending.student_id);
     const order = await trx.prepare('SELECT id FROM orders WHERE pending_purchase_id = ?').get(pending.id);
 
@@ -115,7 +116,7 @@ async function finalizePendingPurchase(pending) {
 
 // Looks up the outcome of an already-resolved (approved) pending purchase,
 // so repeated cashier polls return the same result idempotently.
-async function approvedResponseFor(pending) {
+async function approvedResponseFor(db, pending) {
   const transactions = await db.prepare(
     'SELECT * FROM transactions WHERE pending_purchase_id = ? ORDER BY created_at ASC'
   ).all(pending.id);
@@ -126,30 +127,36 @@ async function approvedResponseFor(pending) {
 }
 
 // GET /wallet/balance
-router.get('/balance', authMiddleware, async (req, res) => {
+app.get('/balance', authMiddleware, async (c) => {
+  const db = c.get('db');
+  const user = c.get('user');
   const student = await db.prepare(
     'SELECT id, name, email, class, balance, emergency_balance, allergies FROM students WHERE id = ?'
-  ).get(req.user.id);
-  if (!student) return res.status(404).json({ error: 'Student not found' });
-  res.json(student);
+  ).get(user.id);
+  if (!student) return c.json({ error: 'Student not found' }, 404);
+  return c.json(student);
 });
 
 // GET /wallet/history
-router.get('/history', authMiddleware, async (req, res) => {
+app.get('/history', authMiddleware, async (c) => {
+  const db = c.get('db');
+  const user = c.get('user');
   const txns = await db.prepare(
     'SELECT * FROM transactions WHERE student_id = ? ORDER BY created_at DESC LIMIT 50'
-  ).all(req.user.id);
-  res.json(txns);
+  ).all(user.id);
+  return c.json(txns);
 });
 
 // POST /wallet/topup  — admin only
-router.post('/topup', authMiddleware, shopOwnerMiddleware, async (req, res) => {
-  const { studentId } = req.body;
-  const amount = parseAmount(req.body.amount);
-  if (!studentId || amount === null) return res.status(400).json({ error: 'Invalid request' });
+app.post('/topup', authMiddleware, shopOwnerMiddleware, async (c) => {
+  const db = c.get('db');
+  const body = await c.req.json();
+  const { studentId } = body;
+  const amount = parseAmount(body.amount);
+  if (!studentId || amount === null) return c.json({ error: 'Invalid request' }, 400);
 
   try {
-    const result = await withTransaction(async (trx) => {
+    const result = await db.withTransaction(async (trx) => {
       const student = await trx.prepare('SELECT * FROM students WHERE id = ? FOR UPDATE').get(studentId);
       if (!student) throw new HttpError(404, 'Student not found');
 
@@ -162,22 +169,25 @@ router.post('/topup', authMiddleware, shopOwnerMiddleware, async (req, res) => {
 
       return { message: 'Wallet topped up', newBalance };
     });
-    res.json(result);
+    return c.json(result);
   } catch (err) {
-    if (err instanceof HttpError) return res.status(err.status).json(err.body);
+    if (err instanceof HttpError) return c.json(err.body, err.status);
     throw err;
   }
 });
 
 // POST /wallet/pay  — NFC payment
-router.post('/pay', authMiddleware, async (req, res) => {
-  const amount = parseAmount(req.body.amount);
-  if (amount === null) return res.status(400).json({ error: 'Invalid amount' });
-  const { description, merchant } = req.body;
+app.post('/pay', authMiddleware, async (c) => {
+  const db = c.get('db');
+  const user = c.get('user');
+  const body = await c.req.json();
+  const amount = parseAmount(body.amount);
+  if (amount === null) return c.json({ error: 'Invalid amount' }, 400);
+  const { description, merchant } = body;
 
   try {
-    const result = await withTransaction(async (trx) => {
-      const student = await trx.prepare('SELECT * FROM students WHERE id = ? FOR UPDATE').get(req.user.id);
+    const result = await db.withTransaction(async (trx) => {
+      const student = await trx.prepare('SELECT * FROM students WHERE id = ? FOR UPDATE').get(user.id);
       if (!student) throw new HttpError(404, 'Student not found');
 
       const totalAvailable = student.balance + (student.emergency_balance || 0);
@@ -189,11 +199,11 @@ router.post('/pay', authMiddleware, async (req, res) => {
       const newBalance = student.balance - fromMain;
       const newEmergencyBalance = (student.emergency_balance || 0) - fromEmergency;
       await trx.prepare('UPDATE students SET balance = ?, emergency_balance = ? WHERE id = ?')
-        .run(newBalance, newEmergencyBalance, req.user.id);
+        .run(newBalance, newEmergencyBalance, user.id);
 
       const txn = {
         id: uuidv4(),
-        student_id: req.user.id,
+        student_id: user.id,
         type: 'debit',
         amount,
         description: description || 'Payment',
@@ -213,17 +223,20 @@ router.post('/pay', authMiddleware, async (req, res) => {
         emergencyBalance: newEmergencyBalance,
       };
     });
-    res.json(result);
+    return c.json(result);
   } catch (err) {
-    if (err instanceof HttpError) return res.status(err.status).json(err.body);
+    if (err instanceof HttpError) return c.json(err.body, err.status);
     throw err;
   }
 });
 
 // POST /wallet/pay-by-nfc — cashier terminal: uid + student PIN + amount
 // (or a single menuItemId, or a cart of {menuItemId, quantity} lines)
-router.post('/pay-by-nfc', authMiddleware, shopOwnerMiddleware, async (req, res) => {
-  let { uid, pin, amount, description, merchant, menuItemId, cart } = req.body;
+app.post('/pay-by-nfc', authMiddleware, shopOwnerMiddleware, async (c) => {
+  const db = c.get('db');
+  const user = c.get('user');
+  const body = await c.req.json();
+  let { uid, pin, amount, description, merchant, menuItemId, cart } = body;
 
   // Cart checkout: multiple menu items (each with a quantity) in one sale.
   // Resolves to one transaction row per cart line further down. The PIN,
@@ -234,16 +247,16 @@ router.post('/pay-by-nfc', authMiddleware, shopOwnerMiddleware, async (req, res)
   if (Array.isArray(cart) && cart.length > 0) {
     for (const line of cart) {
       if (!line.menuItemId || !Number.isInteger(line.quantity) || line.quantity <= 0) {
-        return res.status(400).json({ error: 'Each cart line needs a menuItemId and a positive integer quantity' });
+        return c.json({ error: 'Each cart line needs a menuItemId and a positive integer quantity' }, 400);
       }
     }
     const ids = [...new Set(cart.map((l) => l.menuItemId))];
     const placeholders = ids.map(() => '?').join(', ');
     const items = await db.prepare(
       `SELECT * FROM menu_items WHERE id IN (${placeholders}) AND active = 1 AND shop_owner_id = ?`
-    ).all(...ids, req.user.id);
+    ).all(...ids, user.id);
     if (items.length !== ids.length) {
-      return res.status(404).json({ error: 'One or more menu items were not found or are inactive' });
+      return c.json({ error: 'One or more menu items were not found or are inactive' }, 404);
     }
 
     const itemById = Object.fromEntries(items.map((i) => [i.id, i]));
@@ -259,20 +272,20 @@ router.post('/pay-by-nfc', authMiddleware, shopOwnerMiddleware, async (req, res)
     // omitted them — the PIN, balance, and daily-limit checks below are untouched.
     menuItem = await db.prepare(
       'SELECT * FROM menu_items WHERE id = ? AND active = 1 AND shop_owner_id = ?'
-    ).get(menuItemId, req.user.id);
-    if (!menuItem) return res.status(404).json({ error: 'Menu item not found or inactive' });
+    ).get(menuItemId, user.id);
+    if (!menuItem) return c.json({ error: 'Menu item not found or inactive' }, 404);
     if (amount === undefined || amount === null || amount === '') amount = menuItem.price;
     if (!description) description = menuItem.name;
   }
 
   amount = parseAmount(amount);
   if (!uid || !pin || amount === null) {
-    return res.status(400).json({ error: 'uid, pin and amount are required' });
+    return c.json({ error: 'uid, pin and amount are required' }, 400);
   }
 
   // PIN check and lockout bookkeeping happen outside the payment transaction
-  // and always commit immediately (via the module-level `db`, not `trx`) —
-  // a failed attempt must be recorded even when the payment itself is later
+  // and always commit immediately (via the request's `db`, not `trx`) — a
+  // failed attempt must be recorded even when the payment itself is later
   // rejected/rolled back for an unrelated reason.
   const card = await db.prepare(`
     SELECT s.*, c.uid FROM cards c
@@ -280,26 +293,26 @@ router.post('/pay-by-nfc', authMiddleware, shopOwnerMiddleware, async (req, res)
     WHERE c.uid = ? AND c.active = 1
   `).get(uid);
 
-  if (!card) return res.status(404).json({ error: 'Card not found or inactive' });
+  if (!card) return c.json({ error: 'Card not found or inactive' }, 404);
 
   if (isLocked(card)) {
-    const { status, body } = lockedResponse(card);
-    return res.status(status).json(body);
+    const { status, body: lockedBody } = lockedResponse(card);
+    return c.json(lockedBody, status);
   }
 
   const validPin = bcrypt.compareSync(String(pin), card.pin_hash);
   if (!validPin) {
     await recordFailedAttempt(db, card.id);
-    return res.status(401).json({ error: 'Invalid PIN' });
+    return c.json({ error: 'Invalid PIN' }, 401);
   }
   await recordSuccess(db, card.id);
 
   // Every sale needs a shop to attach its `orders` row to — resolved once
   // here rather than inside the transaction below since it never changes
   // mid-request and isn't part of the balance/limit read-modify-write.
-  const cashierShop = await db.prepare('SELECT shop_id FROM students WHERE id = ?').get(req.user.id);
+  const cashierShop = await db.prepare('SELECT shop_id FROM students WHERE id = ?').get(user.id);
   if (!cashierShop?.shop_id) {
-    return res.status(400).json({ error: 'Your account is not linked to a shop — contact your school admin' });
+    return c.json({ error: 'Your account is not linked to a shop — contact your school admin' }, 400);
   }
   const shopId = cashierShop.shop_id;
 
@@ -308,7 +321,7 @@ router.post('/pay-by-nfc', authMiddleware, shopOwnerMiddleware, async (req, res)
     : (menuItem ? [menuItem.category] : []);
 
   try {
-    const result = await withTransaction(async (trx) => {
+    const result = await db.withTransaction(async (trx) => {
       // Re-fetch under a row lock: balance/daily-limit checks must run
       // against the current committed state, and no other request may
       // read-modify-write this student's balance until we commit/rollback.
@@ -323,18 +336,18 @@ router.post('/pay-by-nfc', authMiddleware, shopOwnerMiddleware, async (req, res)
 
         const lineCount = cartLines ? cartLines.length : 1;
         if (lockedCard.daily_limit_count != null && today.count + lineCount > lockedCard.daily_limit_count) {
-          const parent = await getParentFor(lockedCard);
+          const parent = await getParentFor(db, lockedCard);
           throw new HttpError(400, { error: 'Daily transaction limit reached', parentPhone: parent?.phone || null });
         }
         if (lockedCard.daily_limit_amount != null && (today.total + amount) > lockedCard.daily_limit_amount) {
-          const parent = await getParentFor(lockedCard);
+          const parent = await getParentFor(db, lockedCard);
           throw new HttpError(400, { error: 'Daily spending limit exceeded', parentPhone: parent?.phone || null });
         }
       }
 
       const totalAvailable = lockedCard.balance + (lockedCard.emergency_balance || 0);
       if (totalAvailable < amount) {
-        const parent = await getParentFor(lockedCard);
+        const parent = await getParentFor(db, lockedCard);
         throw new HttpError(400, { error: 'Insufficient balance', parentPhone: parent?.phone || null });
       }
 
@@ -356,7 +369,7 @@ router.post('/pay-by-nfc', authMiddleware, shopOwnerMiddleware, async (req, res)
           INSERT INTO pending_purchases (id, student_id, shop_owner_id, amount, description, merchant, item_id, cart_json, status, expires_at)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
         `).run(
-          pendingId, lockedCard.id, req.user.id, amount, holdDescription,
+          pendingId, lockedCard.id, user.id, amount, holdDescription,
           merchant || 'School', menuItem ? menuItem.id : null, cartJson, expiresAt.toISOString()
         );
 
@@ -365,7 +378,7 @@ router.post('/pay-by-nfc', authMiddleware, shopOwnerMiddleware, async (req, res)
           INSERT INTO orders (id, shop_id, student_id, cashier_id, items, amount, status, pending_purchase_id)
           VALUES (?, ?, ?, ?, ?, ?, 'pending_approval', ?)
         `).run(
-          orderId, shopId, lockedCard.id, req.user.id,
+          orderId, shopId, lockedCard.id, user.id,
           JSON.stringify(orderItemsSnapshot(cartLines, menuItem, amount, description)), amount, pendingId
         );
 
@@ -389,7 +402,7 @@ router.post('/pay-by-nfc', authMiddleware, shopOwnerMiddleware, async (req, res)
         INSERT INTO orders (id, shop_id, student_id, cashier_id, items, amount, status)
         VALUES (?, ?, ?, ?, ?, ?, 'completed')
       `).run(
-        orderId, shopId, lockedCard.id, req.user.id,
+        orderId, shopId, lockedCard.id, user.id,
         JSON.stringify(orderItemsSnapshot(cartLines, menuItem, amount, description)), amount
       );
 
@@ -397,23 +410,26 @@ router.post('/pay-by-nfc', authMiddleware, shopOwnerMiddleware, async (req, res)
       return { pending: false, payload: paymentResponse(lockedCard, transactions, newBalance, newEmergencyBalance, !!cartLines) };
     });
 
-    res.status(result.pending ? 202 : 200).json(result.payload);
+    return c.json(result.payload, result.pending ? 202 : 200);
   } catch (err) {
-    if (err instanceof HttpError) return res.status(err.status).json(err.body);
+    if (err instanceof HttpError) return c.json(err.body, err.status);
     throw err;
   }
 });
 
 // GET /wallet/pending/:id — cashier polls this while waiting for a parent
 // to reject a held junk-food purchase; auto-approves once the timeout passes.
-router.get('/pending/:id', authMiddleware, shopOwnerMiddleware, async (req, res) => {
+app.get('/pending/:id', authMiddleware, shopOwnerMiddleware, async (c) => {
+  const db = c.get('db');
+  const user = c.get('user');
+  const id = c.req.param('id');
   const pending = await db.prepare(
     'SELECT * FROM pending_purchases WHERE id = ? AND shop_owner_id = ?'
-  ).get(req.params.id, req.user.id);
-  if (!pending) return res.status(404).json({ error: 'Pending purchase not found' });
+  ).get(id, user.id);
+  if (!pending) return c.json({ error: 'Pending purchase not found' }, 404);
 
-  if (pending.status === 'rejected') return res.json({ status: 'rejected' });
-  if (pending.status === 'approved') return res.json(await approvedResponseFor(pending));
+  if (pending.status === 'rejected') return c.json({ status: 'rejected' });
+  if (pending.status === 'approved') return c.json(await approvedResponseFor(db, pending));
 
   if (new Date(pending.expires_at) <= new Date()) {
     // Atomic claim: only one concurrent poll can flip pending -> approved.
@@ -421,16 +437,16 @@ router.get('/pending/:id', authMiddleware, shopOwnerMiddleware, async (req, res)
       "UPDATE pending_purchases SET status = 'approved', resolved_at = NOW() WHERE id = ? AND status = 'pending' RETURNING *"
     ).get(pending.id);
 
-    if (claimed) return res.json(await finalizePendingPurchase(claimed));
+    if (claimed) return c.json(await finalizePendingPurchase(db, claimed));
 
     // Lost the race — the parent rejected it (or another poll already
     // finalized it) in between our SELECT and UPDATE. Reflect the outcome.
     const settled = await db.prepare('SELECT * FROM pending_purchases WHERE id = ?').get(pending.id);
-    if (settled.status === 'rejected') return res.json({ status: 'rejected' });
-    return res.json(await approvedResponseFor(settled));
+    if (settled.status === 'rejected') return c.json({ status: 'rejected' });
+    return c.json(await approvedResponseFor(db, settled));
   }
 
-  res.json({ status: 'pending', expiresAt: pending.expires_at });
+  return c.json({ status: 'pending', expiresAt: pending.expires_at });
 });
 
-module.exports = router;
+export default app;

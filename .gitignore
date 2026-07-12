@@ -9,6 +9,10 @@ build/
 .env
 .env.local
 .env.*.local
+.dev.vars
+
+# Wrangler (Cloudflare Workers)
+.wrangler/
 
 # Database
 *.db

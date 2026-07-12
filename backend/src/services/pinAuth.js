@@ -4,21 +4,21 @@
 // triggered from one blocks the others too — a 4-digit PIN only has 10,000
 // combinations, so unlimited attempts from any single entry point is enough
 // to crack it without this.
-const MAX_ATTEMPTS = 5;
-const LOCKOUT_MS = 15 * 60 * 1000;
+export const MAX_ATTEMPTS = 5;
+export const LOCKOUT_MS = 15 * 60 * 1000;
 
-function isLocked(student) {
+export function isLocked(student) {
   return !!student.pin_locked_until && new Date(student.pin_locked_until) > new Date();
 }
 
-function lockedResponse(student) {
+export function lockedResponse(student) {
   const retryAfterSeconds = Math.ceil((new Date(student.pin_locked_until) - new Date()) / 1000);
   return { status: 423, body: { error: 'Too many failed PIN attempts. Try again later.', retryAfterSeconds } };
 }
 
-// `db` may be the module-level db or a withTransaction-scoped trx — both
+// `db` may be the request's db or a withTransaction-scoped trx — both
 // expose the same prepare().get/all/run shape.
-async function recordFailedAttempt(db, studentId) {
+export async function recordFailedAttempt(db, studentId) {
   const attempts = await db.prepare(
     'UPDATE students SET failed_pin_attempts = failed_pin_attempts + 1 WHERE id = ? RETURNING failed_pin_attempts'
   ).get(studentId);
@@ -31,10 +31,8 @@ async function recordFailedAttempt(db, studentId) {
   }
 }
 
-async function recordSuccess(db, studentId) {
+export async function recordSuccess(db, studentId) {
   await db.prepare(
     'UPDATE students SET failed_pin_attempts = 0, pin_locked_until = NULL WHERE id = ?'
   ).run(studentId);
 }
-
-module.exports = { isLocked, lockedResponse, recordFailedAttempt, recordSuccess, MAX_ATTEMPTS, LOCKOUT_MS };

@@ -1,17 +1,21 @@
-const router = require('express').Router();
-const bcrypt = require('bcryptjs');
-const { v4: uuidv4 } = require('uuid');
-const { db } = require('../db/schema');
-const { authMiddleware, shopOwnerMiddleware, staffMiddleware } = require('../middleware/auth');
-const { logAction } = require('../services/auditLog');
+import { Hono } from 'hono';
+import bcrypt from 'bcryptjs';
+import { v4 as uuidv4 } from 'uuid';
+import { authMiddleware, shopOwnerMiddleware, staffMiddleware } from '../middleware/auth.js';
+import { logAction } from '../services/auditLog.js';
+
+const app = new Hono();
 
 const STAFF_ROLES = ['shop_owner', 'school_admin'];
 
 // GET /students — list all students with card info. Optional filters:
 // ?q= (name/email search), ?class= (exact match), ?active=all (default
 // active-only, preserving the cashier dashboard's existing no-params call).
-router.get('/', authMiddleware, staffMiddleware, async (req, res) => {
-  const { q, class: cls, active } = req.query;
+app.get('/', authMiddleware, staffMiddleware, async (c) => {
+  const db = c.get('db');
+  const q = c.req.query('q');
+  const cls = c.req.query('class');
+  const active = c.req.query('active');
 
   const conditions = ["s.role = 'student'"];
   const params = [];
@@ -28,15 +32,17 @@ router.get('/', authMiddleware, staffMiddleware, async (req, res) => {
     WHERE ${conditions.join(' AND ')}
     ORDER BY s.name
   `).all(...params);
-  res.json(students);
+  return c.json(students);
 });
 
 // GET /students/:id — single student with full details + transactions
-router.get('/:id', authMiddleware, async (req, res) => {
-  const { id } = req.params;
+app.get('/:id', authMiddleware, async (c) => {
+  const db = c.get('db');
+  const user = c.get('user');
+  const id = c.req.param('id');
   // Students can only view their own profile; staff (shop owners, school admins) can view any
-  if (!STAFF_ROLES.includes(req.user.role) && req.user.id !== id) {
-    return res.status(403).json({ error: 'Access denied' });
+  if (!STAFF_ROLES.includes(user.role) && user.id !== id) {
+    return c.json({ error: 'Access denied' }, 403);
   }
 
   const student = await db.prepare(`
@@ -47,7 +53,7 @@ router.get('/:id', authMiddleware, async (req, res) => {
     WHERE s.id = ?
   `).get(id);
 
-  if (!student) return res.status(404).json({ error: 'Student not found' });
+  if (!student) return c.json({ error: 'Student not found' }, 404);
 
   const txns = await db.prepare(
     'SELECT * FROM transactions WHERE student_id = ? ORDER BY created_at DESC LIMIT 50'
@@ -59,18 +65,19 @@ router.get('/:id', authMiddleware, async (req, res) => {
     GROUP BY description ORDER BY total DESC LIMIT 5
   `).all(id);
 
-  res.json({ ...student, transactions: txns, spendingBreakdown: spending });
+  return c.json({ ...student, transactions: txns, spendingBreakdown: spending });
 });
 
 // POST /students — create new student
-router.post('/', authMiddleware, shopOwnerMiddleware, async (req, res) => {
-  const { name, email, class: cls, pin, balance = 0 } = req.body;
+app.post('/', authMiddleware, shopOwnerMiddleware, async (c) => {
+  const db = c.get('db');
+  const { name, email, class: cls, pin, balance = 0 } = await c.req.json();
   if (!name || !email || !cls || !pin) {
-    return res.status(400).json({ error: 'name, email, class, pin are required' });
+    return c.json({ error: 'name, email, class, pin are required' }, 400);
   }
 
   const existing = await db.prepare('SELECT id FROM students WHERE email = ?').get(email);
-  if (existing) return res.status(409).json({ error: 'Email already registered' });
+  if (existing) return c.json({ error: 'Email already registered' }, 409);
 
   const id      = 'stu-' + uuidv4().slice(0, 8);
   const pinHash = bcrypt.hashSync(String(pin), 10);
@@ -80,17 +87,19 @@ router.post('/', authMiddleware, shopOwnerMiddleware, async (req, res) => {
     VALUES (?, ?, ?, ?, ?, ?, 'student')
   `).run(id, name, email, cls, Number(balance), pinHash);
 
-  res.status(201).json({ id, name, email, class: cls, balance: Number(balance) });
+  return c.json({ id, name, email, class: cls, balance: Number(balance) }, 201);
 });
 
 // PUT /students/:id — update student info
-router.put('/:id', authMiddleware, shopOwnerMiddleware, async (req, res) => {
-  const { name, email, class: cls } = req.body;
+app.put('/:id', authMiddleware, shopOwnerMiddleware, async (c) => {
+  const db = c.get('db');
+  const id = c.req.param('id');
+  const { name, email, class: cls } = await c.req.json();
   await db.prepare(`
     UPDATE students SET name = COALESCE(?, name), email = COALESCE(?, email), class = COALESCE(?, class)
     WHERE id = ?
-  `).run(name || null, email || null, cls || null, req.params.id);
-  res.json({ message: 'Student updated' });
+  `).run(name || null, email || null, cls || null, id);
+  return c.json({ message: 'Student updated' });
 });
 
 // DELETE /students/:id — archive student (soft delete: deactivate all cards + the account).
@@ -99,30 +108,35 @@ router.put('/:id', authMiddleware, shopOwnerMiddleware, async (req, res) => {
 // below so a shop_owner (staffMiddleware allows them here for deactivating
 // students) can't use this to deactivate another shop_owner or a
 // school_admin — only a school_admin may target a staff row.
-router.delete('/:id', authMiddleware, staffMiddleware, async (req, res) => {
-  const target = await db.prepare('SELECT role FROM students WHERE id = ?').get(req.params.id);
-  if (!target) return res.status(404).json({ error: 'Student not found' });
-  if (['shop_owner', 'school_admin'].includes(target.role) && req.user.role !== 'school_admin') {
-    return res.status(403).json({ error: 'Only a school admin can deactivate a staff account' });
+app.delete('/:id', authMiddleware, staffMiddleware, async (c) => {
+  const db = c.get('db');
+  const user = c.get('user');
+  const id = c.req.param('id');
+  const target = await db.prepare('SELECT role FROM students WHERE id = ?').get(id);
+  if (!target) return c.json({ error: 'Student not found' }, 404);
+  if (['shop_owner', 'school_admin'].includes(target.role) && user.role !== 'school_admin') {
+    return c.json({ error: 'Only a school admin can deactivate a staff account' }, 403);
   }
 
-  await db.prepare('UPDATE cards SET active = 0 WHERE student_id = ?').run(req.params.id);
-  await db.prepare('UPDATE students SET active = 0 WHERE id = ?').run(req.params.id);
+  await db.prepare('UPDATE cards SET active = 0 WHERE student_id = ?').run(id);
+  await db.prepare('UPDATE students SET active = 0 WHERE id = ?').run(id);
 
   await logAction(db, {
-    actorId: req.user.id, actorRole: req.user.role, action: 'account_deactivated',
-    entity: target.role === 'student' ? 'students' : 'staff', entityId: req.params.id,
+    actorId: user.id, actorRole: user.role, action: 'account_deactivated',
+    entity: target.role === 'student' ? 'students' : 'staff', entityId: id,
     before: { active: 1 }, after: { active: 0 },
   });
 
-  res.json({ message: 'Student removed' });
+  return c.json({ message: 'Student removed' });
 });
 
 // GET /students/:id/card-history — spending history for a specific card
-router.get('/:id/card-history', authMiddleware, async (req, res) => {
-  const { id } = req.params;
-  if (!STAFF_ROLES.includes(req.user.role) && req.user.id !== id) {
-    return res.status(403).json({ error: 'Access denied' });
+app.get('/:id/card-history', authMiddleware, async (c) => {
+  const db = c.get('db');
+  const user = c.get('user');
+  const id = c.req.param('id');
+  if (!STAFF_ROLES.includes(user.role) && user.id !== id) {
+    return c.json({ error: 'Access denied' }, 403);
   }
 
   const txns = await db.prepare(`
@@ -133,7 +147,7 @@ router.get('/:id/card-history', authMiddleware, async (req, res) => {
     ORDER BY t.created_at DESC
   `).all(id);
 
-  res.json(txns);
+  return c.json(txns);
 });
 
-module.exports = router;
+export default app;

@@ -1,0 +1,39 @@
+name = "studpay-backend"
+main = "src/index.js"
+compatibility_date = "2026-07-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Non-secret config. JWT_SECRET, and any other real secrets, are NOT set
+# here — see the deploy runbook (wrangler secret put / .dev.vars).
+[vars]
+JWT_EXPIRES_IN = "7d"
+ALLOWED_ORIGINS = "http://localhost:5173,http://localhost:5174,http://localhost:5175"
+
+# Proxies the Postgres (Supabase) connection — `id` is created via
+# `wrangler hyperdrive create` against your Cloudflare account (see runbook).
+# For local `wrangler dev`, Hyperdrive reads a direct connection string from
+# the WRANGLER_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE env var
+# (put it in a gitignored .dev.vars — never commit a real connection string
+# here) instead of hitting the real `id` at all.
+[[hyperdrive]]
+binding = "HYPERDRIVE"
+id = "REPLACE_WITH_REAL_HYPERDRIVE_ID"
+
+# Cloudflare's native Rate Limiting binding — 10s/60s windows only (see
+# services/pinAuth.js and middleware/rateLimit.js for why this is coarser
+# than the old 15-minute express-rate-limit windows, and why that's fine).
+# `namespace_id` is any positive integer unique within your account; these
+# two just need to not collide with each other or another Worker's bindings.
+[[ratelimits]]
+name = "RATE_LIMITER_PIN"
+namespace_id = "1001"
+  [ratelimits.simple]
+  limit = 10
+  period = 10
+
+[[ratelimits]]
+name = "RATE_LIMITER_GLOBAL"
+namespace_id = "1002"
+  [ratelimits.simple]
+  limit = 60
+  period = 60

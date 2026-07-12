@@ -1,7 +1,13 @@
-const { Pool } = require('pg');
-const bcrypt = require('bcryptjs');
-const { v4: uuidv4 } = require('uuid');
-require('dotenv').config();
+// Standalone migration/seed script — run manually (`npm run migrate`) against
+// DATABASE_URL directly with plain `pg`, not through Hyperdrive. Workers has
+// no process-boot hook to run this automatically the way the old Express
+// `initDB().then(() => app.listen())` did, and running 20+ guarded ALTER
+// TABLE checks on every cold start would be wasteful anyway — migrations are
+// a deploy-time/manual step here, same as any other edge deployment.
+import 'dotenv/config';
+import { Pool } from 'pg';
+import bcrypt from 'bcryptjs';
+import { v4 as uuidv4 } from 'uuid';
 
 const isLocal = /localhost|127\.0\.0\.1/.test(process.env.DATABASE_URL || '');
 const pool = new Pool({
@@ -9,9 +15,6 @@ const pool = new Pool({
   ssl: isLocal ? false : { rejectUnauthorized: false },
 });
 
-// Compatibility shim so route files can keep using the same
-// db.prepare(sql).get/.all/.run(...) shape they used with node:sqlite,
-// instead of rewriting every call site into pool.query() + $n placeholders.
 function prepare(sql) {
   let n = 0;
   const pgSql = sql.replace(/\?/g, () => `$${++n}`);
@@ -21,41 +24,15 @@ function prepare(sql) {
     run: async (...params) => { await pool.query(pgSql, params); },
   };
 }
-
 const db = { prepare };
 
-// Runs `fn` against a single checked-out client wrapped in BEGIN/COMMIT, so
-// callers can SELECT ... FOR UPDATE to lock a row and then read-modify-write
-// it atomically (e.g. debiting a wallet) without a lost-update/double-spend
-// race between concurrent requests. `fn` receives a `db`-shaped object bound
-// to the transaction's client — use it instead of the module-level `db` for
-// every query that must participate in the same transaction.
-async function withTransaction(fn) {
-  const client = await pool.connect();
-  const trxDb = { prepare: (sql) => {
-    let n = 0;
-    const pgSql = sql.replace(/\?/g, () => `$${++n}`);
-    return {
-      get: async (...params) => (await client.query(pgSql, params)).rows[0],
-      all: async (...params) => (await client.query(pgSql, params)).rows,
-      run: async (...params) => { await client.query(pgSql, params); },
-    };
-  } };
-
-  try {
-    await client.query('BEGIN');
-    const result = await fn(trxDb);
-    await client.query('COMMIT');
-    return result;
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
-  }
+function datetime(daysOffset = 0) {
+  const d = new Date();
+  d.setDate(d.getDate() + daysOffset);
+  return d.toISOString().replace('T', ' ').slice(0, 19);
 }
 
-async function initDB() {
+async function migrate() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS students (
       id          TEXT PRIMARY KEY,
@@ -129,7 +106,7 @@ async function initDB() {
 
   // Add emergency fund balance — a separate reserve parents can deposit into.
   // Kept apart from the spendable `balance`; only drawn on automatically when
-  // a payment's main balance is insufficient (see wallet.js).
+  // a payment's main balance is insufficient (see routes/wallet.js).
   if (!cols.rows.some((c) => c.column_name === 'emergency_balance')) {
     await pool.query('ALTER TABLE students ADD COLUMN emergency_balance REAL NOT NULL DEFAULT 0');
   }
@@ -140,13 +117,13 @@ async function initDB() {
   if (!cols.rows.some((c) => c.column_name === 'failed_pin_attempts')) {
     await pool.query('ALTER TABLE students ADD COLUMN failed_pin_attempts INTEGER NOT NULL DEFAULT 0');
   }
-  // TIMESTAMPTZ, not TIMESTAMP: this value is written from Node as a UTC
-  // ISO string and read back into a JS Date for a direct comparison against
-  // `new Date()`. A plain TIMESTAMP column silently round-trips through the
-  // pg driver's *local* time zone (whatever TZ the Node process runs under),
-  // shifting the value by the local UTC offset — on an IST host that made a
-  // freshly-set lockout appear already expired. TIMESTAMPTZ always resolves
-  // to one unambiguous instant regardless of session/process time zone.
+  // TIMESTAMPTZ, not TIMESTAMP: this value is written as a UTC ISO string and
+  // read back into a Date for a direct comparison against `new Date()`. A
+  // plain TIMESTAMP column silently round-trips through the pg driver's
+  // *local* time zone, shifting the value by the local UTC offset — on an
+  // IST host that made a freshly-set lockout appear already expired.
+  // TIMESTAMPTZ always resolves to one unambiguous instant regardless of
+  // session/process time zone.
   if (!cols.rows.some((c) => c.column_name === 'pin_locked_until')) {
     await pool.query('ALTER TABLE students ADD COLUMN pin_locked_until TIMESTAMPTZ');
   } else {
@@ -205,7 +182,7 @@ async function initDB() {
 
   // Parent-approval hold for junk-food purchases by young students (grade <= 5).
   // A purchase requiring approval sits here — unbilled — until a parent rejects
-  // it or the timeout elapses and a cashier poll auto-approves it (see wallet.js).
+  // it or the timeout elapses and a cashier poll auto-approves it (see routes/wallet.js).
   await pool.query(`
     CREATE TABLE IF NOT EXISTS pending_purchases (
       id            TEXT PRIMARY KEY,
@@ -222,12 +199,9 @@ async function initDB() {
     );
   `);
 
-  // expires_at was originally TIMESTAMP (no time zone). It's written from
-  // Node as a UTC ISO string and compared in Node against `new Date()` (see
-  // GET /wallet/pending/:id) — the same local-time round-trip bug described
-  // above for pin_locked_until, which made a purchase's approval hold appear
-  // to expire (almost) immediately instead of after the real timeout on any
-  // non-UTC host. Fix existing deployments in place.
+  // expires_at was originally TIMESTAMP (no time zone) — same local-time
+  // round-trip bug described above for pin_locked_until. Fix existing
+  // deployments in place.
   const pendingCols = await pool.query(
     "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'pending_purchases'"
   );
@@ -420,7 +394,7 @@ async function initDB() {
   // way to tell two owners apart as "the same shop" today). Covers both
   // pre-existing rows on a real deploy and the demo rows seeded above.
   // Idempotent — only touches rows where shop_id IS NULL, so it's safe to
-  // run on every startup.
+  // run repeatedly.
   const unassignedOwners = await db.prepare(
     "SELECT id, merchant_name FROM students WHERE role = 'shop_owner' AND shop_id IS NULL"
   ).all();
@@ -436,10 +410,12 @@ async function initDB() {
   }
 }
 
-function datetime(daysOffset = 0) {
-  const d = new Date();
-  d.setDate(d.getDate() + daysOffset);
-  return d.toISOString().replace('T', ' ').slice(0, 19);
-}
-
-module.exports = { db, initDB, withTransaction };
+migrate()
+  .then(() => {
+    console.log('✅ Migration complete');
+    return pool.end();
+  })
+  .catch((err) => {
+    console.error('Migration failed', err);
+    return pool.end().finally(() => process.exit(1));
+  });

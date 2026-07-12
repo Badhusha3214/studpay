@@ -1,51 +1,48 @@
-const jwt = require('jsonwebtoken');
+import { verify } from 'hono/jwt';
 
-function authMiddleware(req, res, next) {
-  const header = req.headers.authorization;
+export async function authMiddleware(c, next) {
+  const header = c.req.header('Authorization');
   if (!header || !header.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'No token provided' });
+    return c.json({ error: 'No token provided' }, 401);
   }
 
-  const token = header.split(' ')[1];
+  const token = header.slice('Bearer '.length);
   try {
-    req.user = jwt.verify(token, process.env.JWT_SECRET);
-    next();
+    const payload = await verify(token, c.env.JWT_SECRET, 'HS256');
+    c.set('user', payload);
+    await next();
   } catch {
-    res.status(401).json({ error: 'Invalid or expired token' });
+    return c.json({ error: 'Invalid or expired token' }, 401);
   }
 }
 
-function shopOwnerMiddleware(req, res, next) {
-  if (req.user?.role !== 'shop_owner') {
-    return res.status(403).json({ error: 'Shop owner access required' });
+export async function shopOwnerMiddleware(c, next) {
+  if (c.get('user')?.role !== 'shop_owner') {
+    return c.json({ error: 'Shop owner access required' }, 403);
   }
-  next();
+  await next();
 }
 
-function parentMiddleware(req, res, next) {
-  if (req.user?.role !== 'parent') {
-    return res.status(403).json({ error: 'Parent access required' });
+export async function parentMiddleware(c, next) {
+  if (c.get('user')?.role !== 'parent') {
+    return c.json({ error: 'Parent access required' }, 403);
   }
-  next();
+  await next();
 }
 
-function schoolAdminMiddleware(req, res, next) {
-  if (req.user?.role !== 'school_admin') {
-    return res.status(403).json({ error: 'School admin access required' });
+export async function schoolAdminMiddleware(c, next) {
+  if (c.get('user')?.role !== 'school_admin') {
+    return c.json({ error: 'School admin access required' }, 403);
   }
-  next();
+  await next();
 }
 
 // Widened check for endpoints that are already school-wide in scope (no
 // per-shop filter) and should be reachable by both a cashier and a school
 // admin — e.g. viewing/searching the student roster, card management.
-function staffMiddleware(req, res, next) {
-  if (!['shop_owner', 'school_admin'].includes(req.user?.role)) {
-    return res.status(403).json({ error: 'Staff access required' });
+export async function staffMiddleware(c, next) {
+  if (!['shop_owner', 'school_admin'].includes(c.get('user')?.role)) {
+    return c.json({ error: 'Staff access required' }, 403);
   }
-  next();
+  await next();
 }
-
-module.exports = {
-  authMiddleware, shopOwnerMiddleware, parentMiddleware, schoolAdminMiddleware, staffMiddleware,
-};

@@ -1,18 +1,19 @@
-const router = require('express').Router();
-const { v4: uuidv4 } = require('uuid');
-const bcrypt = require('bcryptjs');
-const { db, withTransaction } = require('../db/schema');
-const { authMiddleware, parentMiddleware } = require('../middleware/auth');
-const { registerCard } = require('../services/cards');
-const { surnameOf, domainOf, getChildrenFor } = require('../services/family');
-const { parseAmount } = require('../utils/validate');
-const { HttpError } = require('../utils/errors');
+import { Hono } from 'hono';
+import { v4 as uuidv4 } from 'uuid';
+import bcrypt from 'bcryptjs';
+import { authMiddleware, parentMiddleware } from '../middleware/auth.js';
+import { registerCard } from '../services/cards.js';
+import { surnameOf, domainOf, getChildrenFor } from '../services/family.js';
+import { parseAmount } from '../utils/validate.js';
+import { HttpError } from '../utils/errors.js';
+
+const app = new Hono();
 
 function slugify(name) {
   return name.trim().toLowerCase().replace(/\s+/g, '.').replace(/[^a-z0-9.]/g, '');
 }
 
-async function uniqueEmailFor(name, domain) {
+async function uniqueEmailFor(db, name, domain) {
   const base = slugify(name);
   let email = `${base}@${domain}`;
   let suffix = 1;
@@ -23,20 +24,23 @@ async function uniqueEmailFor(name, domain) {
   return email;
 }
 
-async function requireOwnChild(req, res, studentId) {
-  const parent = await db.prepare('SELECT * FROM students WHERE id = ?').get(req.user.id);
-  const children = await getChildrenFor(parent);
-  if (!children.some((c) => c.id === studentId)) {
-    res.status(403).json({ error: 'Not your child' });
-    return null;
-  }
+// Returns the caller's children if `studentId` is one of them, or null
+// otherwise — callers respond with 403 themselves so this stays framework-agnostic.
+// Exported so other routers (e.g. insights.js) can reuse the exact same
+// parent-owns-this-child check instead of re-implementing it.
+export async function requireOwnChild(db, user, studentId) {
+  const parent = await db.prepare('SELECT * FROM students WHERE id = ?').get(user.id);
+  const children = await getChildrenFor(db, parent);
+  if (!children.some((ch) => ch.id === studentId)) return null;
   return children;
 }
 
 // GET /parent/children — list the caller's own children
-router.get('/children', authMiddleware, parentMiddleware, async (req, res) => {
-  const parent = await db.prepare('SELECT * FROM students WHERE id = ?').get(req.user.id);
-  const childRows = await getChildrenFor(parent);
+app.get('/children', authMiddleware, parentMiddleware, async (c) => {
+  const db = c.get('db');
+  const user = c.get('user');
+  const parent = await db.prepare('SELECT * FROM students WHERE id = ?').get(user.id);
+  const childRows = await getChildrenFor(db, parent);
   const children = await Promise.all(childRows.map(async (s) => {
     const card = await db.prepare('SELECT uid, active, id FROM cards WHERE student_id = ? AND active = 1').get(s.id);
     return {
@@ -46,12 +50,15 @@ router.get('/children', authMiddleware, parentMiddleware, async (req, res) => {
       daily_limit_amount: s.daily_limit_amount, daily_limit_count: s.daily_limit_count,
     };
   }));
-  res.json(children);
+  return c.json(children);
 });
 
 // GET /parent/child/:studentId — view child's wallet (must be caller's own child)
-router.get('/child/:studentId', authMiddleware, parentMiddleware, async (req, res) => {
-  if (!(await requireOwnChild(req, res, req.params.studentId))) return;
+app.get('/child/:studentId', authMiddleware, parentMiddleware, async (c) => {
+  const db = c.get('db');
+  const user = c.get('user');
+  const studentId = c.req.param('studentId');
+  if (!(await requireOwnChild(db, user, studentId))) return c.json({ error: 'Not your child' }, 403);
 
   const student = await db.prepare(`
     SELECT s.id, s.name, s.email, s.class, s.balance, s.emergency_balance, s.allergies,
@@ -59,20 +66,20 @@ router.get('/child/:studentId', authMiddleware, parentMiddleware, async (req, re
     FROM students s
     LEFT JOIN cards c ON c.student_id = s.id AND c.active = 1
     WHERE s.id = ?
-  `).get(req.params.studentId);
+  `).get(studentId);
 
-  if (!student) return res.status(404).json({ error: 'Student not found' });
+  if (!student) return c.json({ error: 'Student not found' }, 404);
 
   const txns = await db.prepare(
     'SELECT * FROM transactions WHERE student_id = ? ORDER BY created_at DESC LIMIT 30'
-  ).all(req.params.studentId);
+  ).all(studentId);
 
   // Spending by category (description)
   const byCategory = await db.prepare(`
     SELECT description AS category, SUM(amount) AS total, COUNT(*)::int AS count
     FROM transactions WHERE student_id = ? AND type = 'debit'
     GROUP BY description ORDER BY total DESC
-  `).all(req.params.studentId);
+  `).all(studentId);
 
   // Spending by day (last 7 days)
   const byDay = await db.prepare(`
@@ -82,23 +89,26 @@ router.get('/child/:studentId', authMiddleware, parentMiddleware, async (req, re
       AND created_at >= NOW() - INTERVAL '7 days'
     GROUP BY created_at::date
     ORDER BY day ASC
-  `).all(req.params.studentId);
+  `).all(studentId);
 
-  res.json({ student, transactions: txns, byCategory, byDay });
+  return c.json({ student, transactions: txns, byCategory, byDay });
 });
 
 // POST /parent/topup — parent tops up their own child's wallet
-router.post('/topup', authMiddleware, parentMiddleware, async (req, res) => {
-  const { studentId, note } = req.body;
-  const amount = parseAmount(req.body.amount);
+app.post('/topup', authMiddleware, parentMiddleware, async (c) => {
+  const db = c.get('db');
+  const user = c.get('user');
+  const body = await c.req.json();
+  const { studentId, note } = body;
+  const amount = parseAmount(body.amount);
   if (!studentId || amount === null) {
-    return res.status(400).json({ error: 'studentId and amount required' });
+    return c.json({ error: 'studentId and amount required' }, 400);
   }
 
-  if (!(await requireOwnChild(req, res, studentId))) return;
+  if (!(await requireOwnChild(db, user, studentId))) return c.json({ error: 'Not your child' }, 403);
 
   try {
-    const result = await withTransaction(async (trx) => {
+    const result = await db.withTransaction(async (trx) => {
       const student = await trx.prepare('SELECT * FROM students WHERE id = ? FOR UPDATE').get(studentId);
       if (!student) throw new HttpError(404, 'Student not found');
 
@@ -111,30 +121,32 @@ router.post('/topup', authMiddleware, parentMiddleware, async (req, res) => {
 
       return { message: 'Wallet topped up successfully', newBalance };
     });
-    res.json(result);
+    return c.json(result);
   } catch (err) {
-    if (err instanceof HttpError) return res.status(err.status).json(err.body);
+    if (err instanceof HttpError) return c.json(err.body, err.status);
     throw err;
   }
 });
 
 // POST /parent/students — create a new child linked to the calling parent
-router.post('/students', authMiddleware, parentMiddleware, async (req, res) => {
-  const { name, class: cls, pin, balance = 0 } = req.body;
+app.post('/students', authMiddleware, parentMiddleware, async (c) => {
+  const db = c.get('db');
+  const user = c.get('user');
+  const { name, class: cls, pin, balance = 0 } = await c.req.json();
   if (!name || !cls || !pin) {
-    return res.status(400).json({ error: 'name, class, pin are required' });
+    return c.json({ error: 'name, class, pin are required' }, 400);
   }
 
-  const parent = await db.prepare('SELECT * FROM students WHERE id = ?').get(req.user.id);
+  const parent = await db.prepare('SELECT * FROM students WHERE id = ?').get(user.id);
   const parentSurname = surnameOf(parent.name);
   if (surnameOf(name) !== parentSurname) {
     const displaySurname = parent.name.trim().split(/\s+/).slice(-1)[0];
-    return res.status(400).json({
+    return c.json({
       error: `Child's last name must match yours (${displaySurname}) so the account links to you`,
-    });
+    }, 400);
   }
 
-  const email   = await uniqueEmailFor(name, domainOf(parent.email));
+  const email   = await uniqueEmailFor(db, name, domainOf(parent.email));
   const id      = 'stu-' + uuidv4().slice(0, 8);
   const pinHash = bcrypt.hashSync(String(pin), 10);
 
@@ -143,27 +155,30 @@ router.post('/students', authMiddleware, parentMiddleware, async (req, res) => {
     VALUES (?, ?, ?, ?, ?, ?, 'student')
   `).run(id, name, email, cls, Number(balance), pinHash);
 
-  res.status(201).json({ id, name, email, class: cls, balance: Number(balance) });
+  return c.json({ id, name, email, class: cls, balance: Number(balance) }, 201);
 });
 
 // PUT /parent/child/:studentId — edit own child's name/class/daily limits/allergies
-router.put('/child/:studentId', authMiddleware, parentMiddleware, async (req, res) => {
-  const { name, class: cls, dailyLimitAmount, dailyLimitCount, allergies } = req.body;
-  if (!(await requireOwnChild(req, res, req.params.studentId))) return;
+app.put('/child/:studentId', authMiddleware, parentMiddleware, async (c) => {
+  const db = c.get('db');
+  const user = c.get('user');
+  const studentId = c.req.param('studentId');
+  const { name, class: cls, dailyLimitAmount, dailyLimitCount, allergies } = await c.req.json();
+  if (!(await requireOwnChild(db, user, studentId))) return c.json({ error: 'Not your child' }, 403);
 
   if (name) {
-    const parent = await db.prepare('SELECT * FROM students WHERE id = ?').get(req.user.id);
+    const parent = await db.prepare('SELECT * FROM students WHERE id = ?').get(user.id);
     if (surnameOf(name) !== surnameOf(parent.name)) {
       const displaySurname = parent.name.trim().split(/\s+/).slice(-1)[0];
-      return res.status(400).json({
+      return c.json({
         error: `Last name must stay ${displaySurname} to keep this account linked to you`,
-      });
+      }, 400);
     }
   }
 
   const current = await db.prepare(
     'SELECT daily_limit_amount, daily_limit_count, allergies FROM students WHERE id = ?'
-  ).get(req.params.studentId);
+  ).get(studentId);
 
   const toNullableNumber = (v) => (v === undefined ? undefined : (v === null || v === '' ? null : Number(v)));
   const toNullableString = (v) => (v === undefined ? undefined : (v === null ? null : String(v).trim() || null));
@@ -184,93 +199,109 @@ router.put('/child/:studentId', authMiddleware, parentMiddleware, async (req, re
     newAmount !== undefined ? newAmount : current.daily_limit_amount,
     newCount !== undefined ? newCount : current.daily_limit_count,
     newAllergies !== undefined ? newAllergies : current.allergies,
-    req.params.studentId
+    studentId
   );
 
-  res.json({ message: 'Child updated' });
+  return c.json({ message: 'Child updated' });
 });
 
 // POST /parent/child/:studentId/emergency-fund — deposit into own child's emergency fund.
 // This balance is kept separate from the spendable wallet and is only drawn on
-// automatically at payment time if the main balance runs short (see wallet.js).
-router.post('/child/:studentId/emergency-fund', authMiddleware, parentMiddleware, async (req, res) => {
-  const { note } = req.body;
-  const amount = parseAmount(req.body.amount);
-  if (amount === null) return res.status(400).json({ error: 'amount required' });
-  if (!(await requireOwnChild(req, res, req.params.studentId))) return;
+// automatically at payment time if the main balance runs short (see routes/wallet.js).
+app.post('/child/:studentId/emergency-fund', authMiddleware, parentMiddleware, async (c) => {
+  const db = c.get('db');
+  const user = c.get('user');
+  const studentId = c.req.param('studentId');
+  const body = await c.req.json();
+  const { note } = body;
+  const amount = parseAmount(body.amount);
+  if (amount === null) return c.json({ error: 'amount required' }, 400);
+  if (!(await requireOwnChild(db, user, studentId))) return c.json({ error: 'Not your child' }, 403);
 
   try {
-    const result = await withTransaction(async (trx) => {
-      const student = await trx.prepare('SELECT * FROM students WHERE id = ? FOR UPDATE').get(req.params.studentId);
+    const result = await db.withTransaction(async (trx) => {
+      const student = await trx.prepare('SELECT * FROM students WHERE id = ? FOR UPDATE').get(studentId);
       if (!student) throw new HttpError(404, 'Student not found');
 
       const newEmergencyBalance = (student.emergency_balance || 0) + amount;
       await trx.prepare('UPDATE students SET emergency_balance = ? WHERE id = ?')
-        .run(newEmergencyBalance, req.params.studentId);
+        .run(newEmergencyBalance, studentId);
 
       await trx.prepare(`
         INSERT INTO transactions (id, student_id, type, amount, description, merchant, balance_after, emergency_amount)
         VALUES (?, ?, 'credit', ?, ?, 'Parent Emergency Fund', ?, ?)
       `).run(
-        uuidv4(), req.params.studentId, amount, note || 'Emergency Fund Deposit',
+        uuidv4(), studentId, amount, note || 'Emergency Fund Deposit',
         student.balance, amount
       );
 
       return { message: 'Emergency fund topped up', emergencyBalance: newEmergencyBalance };
     });
-    res.json(result);
+    return c.json(result);
   } catch (err) {
-    if (err instanceof HttpError) return res.status(err.status).json(err.body);
+    if (err instanceof HttpError) return c.json(err.body, err.status);
     throw err;
   }
 });
 
 // POST /parent/nfc/register — register an NFC card for the caller's own child
-router.post('/nfc/register', authMiddleware, parentMiddleware, async (req, res) => {
-  const { uid, studentId } = req.body;
-  if (!uid || !studentId) return res.status(400).json({ error: 'uid and studentId required' });
-  if (!(await requireOwnChild(req, res, studentId))) return;
+app.post('/nfc/register', authMiddleware, parentMiddleware, async (c) => {
+  const db = c.get('db');
+  const user = c.get('user');
+  const { uid, studentId } = await c.req.json();
+  if (!uid || !studentId) return c.json({ error: 'uid and studentId required' }, 400);
+  if (!(await requireOwnChild(db, user, studentId))) return c.json({ error: 'Not your child' }, 403);
 
-  const result = await registerCard(uid, studentId);
-  if (result.error) return res.status(409).json(result);
+  const result = await registerCard(db, uid, studentId);
+  if (result.error) return c.json(result, 409);
 
-  res.json({ message: `Card ${result.uid} linked`, cardId: result.cardId });
+  return c.json({ message: `Card ${result.uid} linked`, cardId: result.cardId });
 });
 
 // PATCH /parent/child/:studentId/archive — archive (soft-delete) the caller's own child
-router.patch('/child/:studentId/archive', authMiddleware, parentMiddleware, async (req, res) => {
-  if (!(await requireOwnChild(req, res, req.params.studentId))) return;
+app.patch('/child/:studentId/archive', authMiddleware, parentMiddleware, async (c) => {
+  const db = c.get('db');
+  const user = c.get('user');
+  const studentId = c.req.param('studentId');
+  if (!(await requireOwnChild(db, user, studentId))) return c.json({ error: 'Not your child' }, 403);
 
-  await db.prepare('UPDATE cards SET active = 0 WHERE student_id = ?').run(req.params.studentId);
-  await db.prepare('UPDATE students SET active = 0 WHERE id = ?').run(req.params.studentId);
+  await db.prepare('UPDATE cards SET active = 0 WHERE student_id = ?').run(studentId);
+  await db.prepare('UPDATE students SET active = 0 WHERE id = ?').run(studentId);
 
-  res.json({ message: 'Child account archived' });
+  return c.json({ message: 'Child account archived' });
 });
 
 // PATCH /parent/nfc/:cardId/deactivate — deactivate one of the caller's own children's cards
-router.patch('/nfc/:cardId/deactivate', authMiddleware, parentMiddleware, async (req, res) => {
-  const card = await db.prepare('SELECT * FROM cards WHERE id = ?').get(req.params.cardId);
-  if (!card) return res.status(404).json({ error: 'Card not found' });
-  if (!(await requireOwnChild(req, res, card.student_id))) return;
+app.patch('/nfc/:cardId/deactivate', authMiddleware, parentMiddleware, async (c) => {
+  const db = c.get('db');
+  const user = c.get('user');
+  const cardId = c.req.param('cardId');
+  const card = await db.prepare('SELECT * FROM cards WHERE id = ?').get(cardId);
+  if (!card) return c.json({ error: 'Card not found' }, 404);
+  if (!(await requireOwnChild(db, user, card.student_id))) return c.json({ error: 'Not your child' }, 403);
 
-  await db.prepare('UPDATE cards SET active = 0 WHERE id = ?').run(req.params.cardId);
-  res.json({ message: 'Card deactivated' });
+  await db.prepare('UPDATE cards SET active = 0 WHERE id = ?').run(cardId);
+  return c.json({ message: 'Card deactivated' });
 });
 
 // PUT /parent/profile — update the caller's own contact phone number
-router.put('/profile', authMiddleware, parentMiddleware, async (req, res) => {
-  const { phone } = req.body;
-  await db.prepare('UPDATE students SET phone = ? WHERE id = ?').run(phone || null, req.user.id);
-  res.json({ phone: phone || null });
+app.put('/profile', authMiddleware, parentMiddleware, async (c) => {
+  const db = c.get('db');
+  const user = c.get('user');
+  const { phone } = await c.req.json();
+  await db.prepare('UPDATE students SET phone = ? WHERE id = ?').run(phone || null, user.id);
+  return c.json({ phone: phone || null });
 });
 
 // GET /parent/pending-approvals — junk-food purchases by the caller's own
 // young (grade <= 5) children that are still awaiting a reject/timeout
-router.get('/pending-approvals', authMiddleware, parentMiddleware, async (req, res) => {
-  const parent = await db.prepare('SELECT * FROM students WHERE id = ?').get(req.user.id);
-  const children = await getChildrenFor(parent);
-  const childIds = children.map((c) => c.id);
-  if (childIds.length === 0) return res.json([]);
+app.get('/pending-approvals', authMiddleware, parentMiddleware, async (c) => {
+  const db = c.get('db');
+  const user = c.get('user');
+  const parent = await db.prepare('SELECT * FROM students WHERE id = ?').get(user.id);
+  const children = await getChildrenFor(db, parent);
+  const childIds = children.map((ch) => ch.id);
+  if (childIds.length === 0) return c.json([]);
 
   const placeholders = childIds.map(() => '?').join(', ');
   const pending = await db.prepare(`
@@ -281,7 +312,7 @@ router.get('/pending-approvals', authMiddleware, parentMiddleware, async (req, r
     ORDER BY p.created_at ASC
   `).all(...childIds);
 
-  res.json(pending.map((p) => ({
+  return c.json(pending.map((p) => ({
     id: p.id,
     studentId: p.student_id,
     studentName: p.student_name,
@@ -293,23 +324,23 @@ router.get('/pending-approvals', authMiddleware, parentMiddleware, async (req, r
 
 // POST /parent/pending-approvals/:id/reject — reject a held purchase for the
 // caller's own child. If nobody rejects it before the timeout, the cashier's
-// poll on GET /wallet/pending/:id auto-approves it instead (see wallet.js).
-router.post('/pending-approvals/:id/reject', authMiddleware, parentMiddleware, async (req, res) => {
-  const pending = await db.prepare('SELECT * FROM pending_purchases WHERE id = ?').get(req.params.id);
-  if (!pending) return res.status(404).json({ error: 'Pending purchase not found' });
-  if (!(await requireOwnChild(req, res, pending.student_id))) return;
+// poll on GET /wallet/pending/:id auto-approves it instead (see routes/wallet.js).
+app.post('/pending-approvals/:id/reject', authMiddleware, parentMiddleware, async (c) => {
+  const db = c.get('db');
+  const user = c.get('user');
+  const id = c.req.param('id');
+  const pending = await db.prepare('SELECT * FROM pending_purchases WHERE id = ?').get(id);
+  if (!pending) return c.json({ error: 'Pending purchase not found' }, 404);
+  if (!(await requireOwnChild(db, user, pending.student_id))) return c.json({ error: 'Not your child' }, 403);
 
   const rejected = await db.prepare(
     "UPDATE pending_purchases SET status = 'rejected', resolved_at = NOW() WHERE id = ? AND status = 'pending' RETURNING id"
-  ).get(req.params.id);
-  if (!rejected) return res.status(409).json({ error: 'This purchase was already resolved' });
+  ).get(id);
+  if (!rejected) return c.json({ error: 'This purchase was already resolved' }, 409);
 
-  await db.prepare("UPDATE orders SET status = 'rejected' WHERE pending_purchase_id = ?").run(req.params.id);
+  await db.prepare("UPDATE orders SET status = 'rejected' WHERE pending_purchase_id = ?").run(id);
 
-  res.json({ message: 'Purchase rejected' });
+  return c.json({ message: 'Purchase rejected' });
 });
 
-module.exports = router;
-// Exposed so other routers (e.g. insights.js) can reuse the exact same
-// parent-owns-this-child check instead of re-implementing it.
-module.exports.requireOwnChild = requireOwnChild;
+export default app;

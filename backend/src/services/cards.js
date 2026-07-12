@@ -1,11 +1,10 @@
-const { v4: uuidv4 } = require('uuid');
-const { db } = require('../db/schema');
+import { v4 as uuidv4 } from 'uuid';
 
 // Links an NFC UID to a student, deactivating any previous active card for them.
 // Returns { cardId, uid } on success, or { error } if the UID is still actively registered
 // to someone else. A UID freed up by a prior deactivation is reused (physical cards get
 // reassigned to new students), not permanently blocked.
-async function registerCard(uid, studentId) {
+export async function registerCard(db, uid, studentId) {
   const upperUid = uid.toUpperCase();
 
   const existing = await db.prepare('SELECT id, active FROM cards WHERE uid = ?').get(upperUid);
@@ -28,5 +27,3 @@ async function registerCard(uid, studentId) {
 
   return { cardId, uid: upperUid };
 }
-
-module.exports = { registerCard };
