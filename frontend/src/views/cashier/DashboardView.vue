@@ -17,6 +17,11 @@
     </ion-header>
 
     <ion-content :fullscreen="true">
+      <section class="dashboard-hero fade-up">
+        <div><span>Live canteen overview</span><h1>Good {{ greeting }}.</h1><p>Everything is ready for the next rush.</p></div>
+        <div class="hero-mark"><ion-icon :icon="statsChartOutline" /></div>
+      </section>
+
       <!-- Today's sales -->
       <div class="stats-grid fade-up">
         <div class="stat-card" style="--sc:#1B998B;--scl:#D6F5F2">
@@ -89,50 +94,52 @@
         <p v-if="registerMsg" class="msg" :class="registerMsgClass">{{ registerMsg }}</p>
       </div>
 
-      <!-- Manage menu items -->
-      <p class="section-title">Manage Menu Items</p>
-      <div class="c-card fade-up">
-        <div v-if="menuItems.length" class="menu-list">
-          <div v-for="item in menuItems" :key="item.id" class="menu-row" :class="{ inactive: !item.active }">
-            <span class="cat-dot" :style="{ background: CATEGORY_COLORS[item.category] }" />
-            <div class="menu-row-info">
-              <p class="menu-row-name">{{ item.name }}</p>
-              <p class="menu-row-meta">{{ CATEGORY_LABELS[item.category] }} · ₹{{ item.price }}</p>
+      <!-- Manage menu items (shop owners only) -->
+      <template v-if="auth.student?.role === 'shop_owner'">
+        <p class="section-title">Manage Menu Items</p>
+        <div class="c-card fade-up">
+          <div v-if="menuItems.length" class="menu-list">
+            <div v-for="item in menuItems" :key="item.id" class="menu-row" :class="{ inactive: !item.active }">
+              <span class="cat-dot" :style="{ background: CATEGORY_COLORS[item.category] }" />
+              <div class="menu-row-info">
+                <p class="menu-row-name">{{ item.name }}</p>
+                <p class="menu-row-meta">{{ CATEGORY_LABELS[item.category] }} · ₹{{ item.price }}</p>
+              </div>
+              <button class="toggle-btn" @click="toggleItem(item)">
+                {{ item.active ? 'Deactivate' : 'Activate' }}
+              </button>
             </div>
-            <button class="toggle-btn" @click="toggleItem(item)">
-              {{ item.active ? 'Deactivate' : 'Activate' }}
-            </button>
           </div>
-        </div>
-        <p v-else class="no-items">No menu items yet</p>
+          <p v-else class="no-items">No menu items yet</p>
 
-        <div class="divider"><span>add an item</span></div>
+          <div class="divider"><span>add an item</span></div>
 
-        <div class="field-group">
-          <label>Item Name</label>
-          <ion-input v-model="newItemName" placeholder="e.g. Samosa" class="c-input-inline" />
-        </div>
-        <div class="field-group">
-          <label>Category</label>
-          <ion-select v-model="newItemCategory" placeholder="Select a category" interface="popover" class="c-input-inline">
-            <ion-select-option v-for="c in CATEGORY_ORDER" :key="c" :value="c">{{ CATEGORY_LABELS[c] }}</ion-select-option>
-          </ion-select>
-        </div>
-        <div class="field-group">
-          <label>Price (₹)</label>
-          <ion-input v-model="newItemPrice" type="number" placeholder="0" class="c-input-inline" />
-        </div>
+          <div class="field-group">
+            <label>Item Name</label>
+            <ion-input v-model="newItemName" placeholder="e.g. Samosa" class="c-input-inline" />
+          </div>
+          <div class="field-group">
+            <label>Category</label>
+            <ion-select v-model="newItemCategory" placeholder="Select a category" interface="popover" class="c-input-inline">
+              <ion-select-option v-for="c in CATEGORY_ORDER" :key="c" :value="c">{{ CATEGORY_LABELS[c] }}</ion-select-option>
+            </ion-select>
+          </div>
+          <div class="field-group">
+            <label>Price (₹)</label>
+            <ion-input v-model="newItemPrice" type="number" placeholder="0" class="c-input-inline" />
+          </div>
 
-        <ion-button
-          expand="block" class="link-btn"
-          :disabled="!newItemName || !newItemCategory || !newItemPrice || itemLoading"
-          @click="addItem"
-        >
-          <ion-spinner v-if="itemLoading" name="crescent" />
-          <span v-else>Add Item</span>
-        </ion-button>
-        <p v-if="itemMsg" class="msg" :class="itemMsgClass">{{ itemMsg }}</p>
-      </div>
+          <ion-button
+            expand="block" class="link-btn"
+            :disabled="!newItemName || !newItemCategory || !newItemPrice || itemLoading"
+            @click="addItem"
+          >
+            <ion-spinner v-if="itemLoading" name="crescent" />
+            <span v-else>Add Item</span>
+          </ion-button>
+          <p v-if="itemMsg" class="msg" :class="itemMsgClass">{{ itemMsg }}</p>
+        </div>
+      </template>
 
       <!-- Transaction log -->
       <p class="section-title">Transaction Log</p>
@@ -172,7 +179,7 @@ import {
   IonInput, IonSelect, IonSelectOption, IonIcon, IonSpinner,
 } from '@ionic/vue';
 import {
-  arrowBackOutline, wifiOutline, receiptOutline, arrowUpOutline,
+  arrowBackOutline, wifiOutline, receiptOutline, arrowUpOutline, statsChartOutline,
 } from 'ionicons/icons';
 import { useAuthStore } from '@/store/auth';
 import { useNfc } from '@/composables/useNfc';
@@ -208,20 +215,24 @@ const newItemPrice    = ref('');
 const itemLoading     = ref(false);
 const itemMsg         = ref('');
 const itemMsgClass    = ref('');
+const greeting = new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 17 ? 'afternoon' : 'evening';
 
 async function loadAll() {
   txnLoading.value = true;
   try {
-    const [statsRes, txnRes, stuRes, menuRes] = await Promise.all([
+    const calls = [
       api.get('/shop/stats'),
       api.get('/shop/transactions'),
       api.get('/students'),
-      api.get('/menu/items'),
-    ]);
+    ];
+    if (auth.student?.role === 'shop_owner') calls.push(api.get('/menu/items'));
+    const [statsRes, txnRes, stuRes, menuRes] = await Promise.all(calls);
     stats.value     = statsRes.data;
     txns.value      = txnRes.data;
     students.value  = stuRes.data;
-    menuItems.value = menuRes.data;
+    if (menuRes) menuItems.value = menuRes.data;
+  } catch (err: any) {
+    console.error('Failed to load dashboard:', err?.response?.data?.error || err.message);
   } finally {
     txnLoading.value = false;
   }
@@ -307,12 +318,13 @@ onMounted(loadAll);
 </script>
 
 <style scoped>
+.dashboard-hero { margin:8px 16px 12px; padding:21px; border-radius:26px; color:white; background:linear-gradient(135deg,#153640,#007e72); display:flex; align-items:center; justify-content:space-between; box-shadow:var(--c-shadow-lg); }.dashboard-hero span { font-size:10px; text-transform:uppercase; letter-spacing:.12em; font-weight:800; opacity:.66; }.dashboard-hero h1 { font-size:24px; letter-spacing:-.05em; margin:5px 0 3px; }.dashboard-hero p { font-size:11px; margin:0; opacity:.78; }.hero-mark { width:54px; height:54px; display:grid; place-items:center; border-radius:18px; background:rgba(255,255,255,.14); font-size:27px; }
 .stats-grid {
   display: grid; grid-template-columns: 1fr 1fr;
   gap: 12px; padding: 16px;
 }
 .stat-card {
-  background: var(--scl); border-radius: 16px; padding: 16px;
+  background: var(--scl); border-radius: 21px; padding: 17px;
   display: flex; flex-direction: column;
 }
 .sc-val { font-size: 26px; font-weight: 800; color: var(--sc); margin: 0; }

@@ -1,5 +1,5 @@
 <template>
-  <ion-page>
+  <template>
     <ion-header class="ion-no-border">
       <ion-toolbar>
         <ion-buttons slot="start">
@@ -92,14 +92,14 @@
 
       <div style="height: 24px" />
     </ion-content>
-  </ion-page>
+  </template>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import {
-  IonPage, IonHeader, IonToolbar, IonTitle, IonButtons, IonButton, IonContent,
+  IonHeader, IonToolbar, IonTitle, IonButtons, IonButton, IonContent,
   IonIcon, IonSpinner,
 } from '@ionic/vue';
 import { arrowBackOutline, downloadOutline } from 'ionicons/icons';
@@ -121,7 +121,7 @@ const to    = ref('');
 const shopId = ref('');
 const grade  = ref('');
 
-const loading  = ref(false);
+const loading  = ref(true);
 const report   = ref<Report | null>(null);
 const exporting = ref(false);
 
@@ -155,6 +155,8 @@ async function load() {
   try {
     const { data } = await api.get('/admin/reports/spending', { params: reportParams() });
     report.value = data;
+  } catch (err: any) {
+    console.error('Failed to load report:', err?.response?.data?.error || err.message);
   } finally {
     loading.value = false;
   }
@@ -165,6 +167,8 @@ async function loadEmergencyUsage() {
   try {
     const { data } = await api.get('/admin/reports/emergency-fund');
     emergencyUsage.value = data;
+  } catch (err: any) {
+    console.error('Failed to load emergency fund usage:', err?.response?.data?.error || err.message);
   } finally {
     emergencyLoading.value = false;
   }
@@ -183,6 +187,8 @@ async function exportCsv() {
     a.download = `spending-report-${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
+  } catch (err: any) {
+    console.error('Failed to export CSV:', err?.response?.data?.error || err.message);
   } finally {
     exporting.value = false;
   }
@@ -243,4 +249,5 @@ onMounted(() => {
 
 .center { display: flex; justify-content: center; padding: 32px; }
 .center.small { padding: 16px; }
+ion-content { --background: var(--sp-bg); }
 </style>

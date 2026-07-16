@@ -15,9 +15,14 @@ ALLOWED_ORIGINS = "http://localhost:5173,http://localhost:5174,http://localhost:
 # the WRANGLER_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE env var
 # (put it in a gitignored .dev.vars — never commit a real connection string
 # here) instead of hitting the real `id` at all.
+#
+# Setup steps:
+#   1. wrangler hyperdrive create STUDYPAY_HYPERDRIVE --connection-string="postgresql://..."
+#   2. Copy the returned ID below
+#   3. wrangler secret put HYPERDRIVE (paste the connection string for production)
 [[hyperdrive]]
 binding = "HYPERDRIVE"
-id = "REPLACE_WITH_REAL_HYPERDRIVE_ID"
+id = "YOUR_HYPERDRIVE_ID_HERE"  # Run: wrangler hyperdrive create STUDYPAY_HYPERDRIVE
 
 # Cloudflare's native Rate Limiting binding — 10s/60s windows only (see
 # services/pinAuth.js and middleware/rateLimit.js for why this is coarser

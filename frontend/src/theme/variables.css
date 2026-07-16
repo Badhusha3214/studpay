@@ -1,169 +1,86 @@
-/* StudPay Design Tokens */
+/* StudPay — Aurora interface system */
 :root {
-  --sp-purple:        #6C63FF;
-  --sp-purple-dark:   #574fd6;
-  --sp-purple-light:  #EDE9FF;
-  --sp-teal:          #00C9A7;
-  --sp-teal-light:    #D6FBF5;
-  --sp-orange:        #FF6B6B;
-  --sp-orange-light:  #FFE8E8;
-  --sp-yellow:        #FFD166;
-  --sp-card-bg:       #FFFFFF;
-  --sp-bg:            #F4F3FF;
-  --sp-text:          #1A1A2E;
-  --sp-subtext:       #6B6B8A;
-  --sp-border:        #E8E8F0;
-  --sp-radius:        16px;
-  --sp-radius-lg:     24px;
-  --sp-shadow:        0 4px 20px rgba(108, 99, 255, 0.12);
-  --sp-shadow-lg:     0 8px 32px rgba(108, 99, 255, 0.2);
+  --sp-purple: #7c5cff;
+  --sp-purple-dark: #5b38ec;
+  --sp-purple-light: #e9e4ff;
+  --sp-teal: #2ee6c6;
+  --sp-teal-light: #d8fff7;
+  --sp-orange: #ff7a93;
+  --sp-orange-light: #ffe3ea;
+  --sp-yellow: #ffcf70;
+  --sp-card-bg: rgba(255, 255, 255, .82);
+  --sp-bg: #f4f6ff;
+  --sp-text: #17213d;
+  --sp-subtext: #68718d;
+  --sp-border: rgba(107, 119, 159, .18);
+  --sp-radius: 18px;
+  --sp-radius-lg: 26px;
+  --sp-shadow: 0 14px 38px rgba(66, 72, 135, .10);
+  --sp-shadow-lg: 0 24px 55px rgba(79, 63, 177, .22);
 
-  /* Cashier (shop owner) tokens — used only under .cashier-mode */
-  --c-green:        #1B998B;
-  --c-green-dark:   #147a6f;
-  --c-green-light:  #D6F5F2;
-  --c-orange:       #FF6B35;
-  --c-orange-light: #FFE8DF;
-  --c-bg:           #F0FAF9;
-  --c-card:         #FFFFFF;
-  --c-text:         #0D2B28;
-  --c-subtext:      #5A7B77;
-  --c-border:       #D0EAE7;
-  --c-shadow:       0 4px 20px rgba(27, 153, 139, 0.12);
-  --c-shadow-lg:    0 8px 32px rgba(27, 153, 139, 0.22);
+  --c-green: #00b894;
+  --c-green-dark: #008c74;
+  --c-green-light: #d8fff2;
+  --c-orange: #ff6b6b;
+  --c-orange-light: #ffe7e7;
+  --c-bg: #f3fbfa;
+  --c-card: rgba(255, 255, 255, .88);
+  --c-text: #102d35;
+  --c-subtext: #617980;
+  --c-border: rgba(38, 118, 109, .16);
+  --c-shadow: 0 14px 38px rgba(17, 125, 108, .11);
+  --c-shadow-lg: 0 24px 55px rgba(8, 132, 110, .20);
 
-  /* Ionic overrides */
-  --ion-color-primary:         var(--sp-purple);
-  --ion-color-primary-shade:   var(--sp-purple-dark);
-  --ion-color-primary-tint:    var(--sp-purple-light);
-  --ion-background-color:      var(--sp-bg);
-  --ion-text-color:            var(--sp-text);
-  --ion-toolbar-background:    var(--sp-purple);
-  --ion-toolbar-color:         #FFFFFF;
-  --ion-tab-bar-background:    #FFFFFF;
-  --ion-tab-bar-border-color:  var(--sp-border);
+  --ion-color-primary: var(--sp-purple);
+  --ion-color-primary-shade: var(--sp-purple-dark);
+  --ion-color-primary-tint: var(--sp-purple-light);
+  --ion-background-color: var(--sp-bg);
+  --ion-text-color: var(--sp-text);
+  --ion-toolbar-background: transparent;
+  --ion-toolbar-color: var(--sp-text);
+  --ion-tab-bar-background: rgba(255, 255, 255, .88);
+  --ion-tab-bar-border-color: transparent;
 }
 
-/* Global styles */
-ion-content {
-  --background: var(--sp-bg);
-}
+* { box-sizing: border-box; }
+button, input, select, textarea { font: inherit; }
+ion-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+p, span, strong, b, small { overflow-wrap: anywhere; }
+body { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+ion-content { --background: var(--sp-bg); }
+ion-content::part(background) { background: radial-gradient(circle at 90% -10%, rgba(124, 92, 255, .16), transparent 32%), radial-gradient(circle at -10% 26%, rgba(46, 230, 198, .12), transparent 28%), var(--sp-bg); }
+ion-toolbar { --background: transparent; --color: var(--sp-text); --border-color: transparent; padding-inline: 4px; }
+ion-title { font-size: 18px; font-weight: 800; letter-spacing: -.03em; }
+ion-button { font-weight: 750; letter-spacing: -.01em; text-transform: none; }
+ion-tab-bar { height: 72px; padding: 6px 8px max(7px, env(safe-area-inset-bottom)); backdrop-filter: blur(18px); box-shadow: 0 -12px 30px rgba(57, 67, 112, .08); }
+ion-tab-button { --color: var(--sp-subtext); --color-selected: var(--sp-purple); border-radius: 15px; margin: 0 2px; font-weight: 700; }
+ion-tab-button.tab-selected { background: rgba(124, 92, 255, .10); }
+ion-tab-button ion-icon { font-size: 21px; }
+ion-tab-button ion-label { font-size: 10px; margin-top: 3px; }
+ion-button::part(native) { min-height: 0; white-space: normal; line-height: 1.15; }
 
-ion-toolbar {
-  --background: var(--sp-purple);
-  --color: white;
-  --border-color: transparent;
-}
+.sp-card, .c-card { border: 1px solid rgba(255,255,255,.72); backdrop-filter: blur(14px); }
+.sp-card { background: var(--sp-card-bg); border-radius: var(--sp-radius-lg); box-shadow: var(--sp-shadow); padding: 20px; margin: 12px 16px; }
+.c-card { background: var(--c-card); border-radius: 24px; box-shadow: var(--c-shadow); padding: 20px; margin: 12px 16px; }
+.sp-gradient-card { background: linear-gradient(135deg, #242b55 0%, #5b38ec 48%, #8b73ff 100%); border-radius: var(--sp-radius-lg); padding: 28px 24px; margin: 16px; color: white; box-shadow: var(--sp-shadow-lg); position: relative; overflow: hidden; }
+.sp-gradient-card::after { content: ''; position: absolute; width: 180px; height: 180px; border-radius: 50%; background: rgba(46,230,198,.28); filter: blur(18px); right: -65px; top: -75px; }
+.sp-gradient-card > * { position: relative; z-index: 1; }
+.sp-chip { display: inline-flex; align-items: center; gap: 4px; padding: 5px 11px; border-radius: 100px; font-size: 11px; font-weight: 750; }
+.sp-chip.credit { background: var(--sp-teal-light); color: #007f6d; }.sp-chip.debit { background: var(--sp-orange-light); color: #b63252; }
+.sp-section-title, .section-title { font-size: 11px !important; font-weight: 800 !important; letter-spacing: .12em !important; text-transform: uppercase; color: var(--sp-subtext); padding: 16px 16px 7px; }
 
-ion-tab-bar {
-  height: 64px;
-  box-shadow: 0 -4px 16px rgba(108, 99, 255, 0.1);
-}
+@keyframes nfc-pulse { 0%,100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(0, 184, 148, .35); } 50% { transform: scale(1.08); box-shadow: 0 0 0 18px rgba(0, 184, 148, 0); } }
+@keyframes fadeUp { from { opacity: 0; transform: translateY(16px) scale(.985); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes rise { from { transform: scaleY(.15); } to { transform: scaleY(1); } }
+@keyframes orbit { to { transform: rotate(360deg); } }
+.nfc-pulse { animation: nfc-pulse 1.6s ease-in-out infinite; }
+.fade-up { animation: fadeUp .55s cubic-bezier(.22,1,.36,1) both; }
+.fade-up:nth-child(2) { animation-delay: .06s; }.fade-up:nth-child(3) { animation-delay: .12s; }.fade-up:nth-child(4) { animation-delay: .18s; }
 
-ion-tab-button {
-  --color: var(--sp-subtext);
-  --color-selected: var(--sp-purple);
-}
+.cashier-mode { --ion-color-primary: var(--c-green); --ion-color-primary-shade: var(--c-green-dark); --ion-color-primary-tint: var(--c-green-light); --ion-background-color: var(--c-bg); --ion-text-color: var(--c-text); --ion-toolbar-background: transparent; }
+.cashier-mode ion-content { --background: var(--c-bg); }.cashier-mode ion-content::part(background) { background: radial-gradient(circle at 88% 0%, rgba(0,184,148,.14), transparent 32%), var(--c-bg); }
+.cashier-mode ion-toolbar { --background: transparent; --color: var(--c-text); }
+.cashier-mode .pin-dot { width: 14px; height: 14px; border-radius: 50%; background: var(--c-border); transition: all .25s ease; }.cashier-mode .pin-dot.filled { background: var(--c-green); box-shadow: 0 0 0 5px rgba(0,184,148,.12); }
+.cashier-mode .pin-key { width: 72px; height: 72px; border-radius: 24px; background: var(--c-card); box-shadow: 0 8px 20px rgba(0, 76, 64, .10); transition: transform .16s ease, box-shadow .16s ease; }.cashier-mode .pin-key:active { transform: scale(.93); box-shadow: none; }.cashier-mode .pin-key.confirm { background: linear-gradient(135deg, var(--c-green), #2ee6c6); }.cashier-mode .pin-key.empty { background: transparent; box-shadow: none; }
 
-/* Card utility */
-.sp-card {
-  background: var(--sp-card-bg);
-  border-radius: var(--sp-radius-lg);
-  box-shadow: var(--sp-shadow);
-  padding: 20px;
-  margin: 12px 16px;
-}
-
-/* Gradient heading card */
-.sp-gradient-card {
-  background: linear-gradient(135deg, var(--sp-purple) 0%, #9C8FFF 100%);
-  border-radius: var(--sp-radius-lg);
-  padding: 28px 24px;
-  margin: 16px;
-  color: white;
-  box-shadow: var(--sp-shadow-lg);
-}
-
-/* Chip badge */
-.sp-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 12px;
-  border-radius: 100px;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.sp-chip.credit  { background: var(--sp-teal-light);   color: #00916A; }
-.sp-chip.debit   { background: var(--sp-orange-light);  color: #C0392B; }
-
-/* Section title */
-.sp-section-title {
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--sp-subtext);
-  padding: 8px 16px 4px;
-}
-
-/* Pulse animation for NFC scan */
-@keyframes nfc-pulse {
-  0%   { transform: scale(1);   opacity: 1; }
-  50%  { transform: scale(1.18); opacity: 0.6; }
-  100% { transform: scale(1);   opacity: 1; }
-}
-.nfc-pulse { animation: nfc-pulse 1.4s ease-in-out infinite; }
-
-/* Fade-in animation */
-@keyframes fadeUp {
-  from { opacity: 0; transform: translateY(16px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-.fade-up { animation: fadeUp 0.4s ease forwards; }
-
-/* ── Cashier (shop owner) theme — scoped under .cashier-mode on <ion-app> ── */
-.cashier-mode {
-  --ion-color-primary:        var(--c-green);
-  --ion-color-primary-shade:  var(--c-green-dark);
-  --ion-color-primary-tint:   var(--c-green-light);
-  --ion-background-color:     var(--c-bg);
-  --ion-text-color:           var(--c-text);
-  --ion-toolbar-background:   var(--c-green);
-}
-.cashier-mode ion-content { --background: var(--c-bg); }
-.cashier-mode ion-toolbar { --background: var(--c-green); --color: white; --border-color: transparent; }
-
-.c-card {
-  background: var(--c-card);
-  border-radius: 20px;
-  box-shadow: var(--c-shadow);
-  padding: 20px;
-  margin: 12px 16px;
-}
-
-.cashier-mode .pin-dot {
-  width: 14px; height: 14px;
-  border-radius: 50%;
-  background: var(--c-border);
-  transition: background 0.2s;
-}
-.cashier-mode .pin-dot.filled { background: var(--c-green); }
-
-.cashier-mode .pin-key {
-  display: flex; flex-direction: column;
-  align-items: center; justify-content: center;
-  width: 72px; height: 72px;
-  border-radius: 50%;
-  background: var(--c-card);
-  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-  font-size: 22px; font-weight: 600;
-  color: var(--c-text);
-  cursor: pointer; user-select: none;
-  transition: transform 0.1s, box-shadow 0.1s;
-}
-.cashier-mode .pin-key:active  { transform: scale(0.93); box-shadow: none; }
-.cashier-mode .pin-key.danger  { color: var(--c-orange); }
-.cashier-mode .pin-key.confirm { background: var(--c-green); color: white; }
-.cashier-mode .pin-key.empty   { background: transparent; box-shadow: none; cursor: default; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }

@@ -139,6 +139,8 @@ async function load() {
       const { data } = await api.get('/wallet/history');
       transactions.value = data;
     }
+  } catch (err: any) {
+    console.error('Failed to load history:', err?.response?.data?.error || err.message);
   } finally {
     loading.value = false;
   }

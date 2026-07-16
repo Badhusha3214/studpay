@@ -10,7 +10,7 @@ export interface Student {
   balance: number;
   emergency_balance?: number;
   allergies?: string | null;
-  role: 'student' | 'parent' | 'shop_owner' | 'school_admin';
+  role: 'student' | 'parent' | 'shop_owner' | 'school_admin' | 'super_admin' | 'cashier';
   merchant_name?: string;
   phone?: string;
 }
@@ -34,6 +34,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   const isParent = computed(() => student.value?.role === 'parent');
   const isSchoolAdmin = computed(() => student.value?.role === 'school_admin');
+  const isSuperAdmin = computed(() => student.value?.role === 'super_admin');
 
   const children        = ref<Child[]>([]);
   const selectedChildId = ref('');
@@ -98,7 +99,7 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   return {
-    token, student, isParent, isSchoolAdmin,
+    token, student, isParent, isSchoolAdmin, isSuperAdmin,
     children, selectedChildId, selectedChild,
     login, register, logout, updateBalance, updatePhone,
     loadChildren, updateChildBalance, updateChildEmergencyBalance,

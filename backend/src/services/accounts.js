@@ -34,16 +34,27 @@ export async function createShopOwnerAccount(db, { name, email, pin, merchantNam
     shop = { id: newShopId, name: merchantName };
   }
 
-  const id      = 'owner-' + uuidv4().slice(0, 8);
+  const id = 'owner-' + uuidv4().slice(0, 8);
   const pinHash = bcrypt.hashSync(String(pin), 10);
 
-  await db.prepare(`
+  await db
+    .prepare(
+      `
     INSERT INTO students (id, name, email, class, balance, pin_hash, role, merchant_name, phone, shop_id)
     VALUES (?, ?, ?, 'Staff', 0, ?, 'shop_owner', ?, ?, ?)
-  `).run(id, name, email, pinHash, shop.name, phone || null, shop.id);
+  `
+    )
+    .run(id, name, email, pinHash, shop.name, phone || null, shop.id);
 
   return {
-    id, name, email, class: 'Staff', balance: 0, role: 'shop_owner',
-    merchant_name: shop.name, phone: phone || null, shop_id: shop.id,
+    id,
+    name,
+    email,
+    class: 'Staff',
+    balance: 0,
+    role: 'shop_owner',
+    merchant_name: shop.name,
+    phone: phone || null,
+    shop_id: shop.id,
   };
 }

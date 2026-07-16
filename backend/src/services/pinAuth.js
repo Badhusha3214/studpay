@@ -19,20 +19,20 @@ export function lockedResponse(student) {
 // `db` may be the request's db or a withTransaction-scoped trx — both
 // expose the same prepare().get/all/run shape.
 export async function recordFailedAttempt(db, studentId) {
-  const attempts = await db.prepare(
-    'UPDATE students SET failed_pin_attempts = failed_pin_attempts + 1 WHERE id = ? RETURNING failed_pin_attempts'
-  ).get(studentId);
+  const attempts = await db
+    .prepare(
+      'UPDATE students SET failed_pin_attempts = failed_pin_attempts + 1 WHERE id = ? RETURNING failed_pin_attempts'
+    )
+    .get(studentId);
 
   if (attempts.failed_pin_attempts >= MAX_ATTEMPTS) {
     const lockedUntil = new Date(Date.now() + LOCKOUT_MS);
-    await db.prepare(
-      'UPDATE students SET failed_pin_attempts = 0, pin_locked_until = ? WHERE id = ?'
-    ).run(lockedUntil.toISOString(), studentId);
+    await db
+      .prepare('UPDATE students SET failed_pin_attempts = 0, pin_locked_until = ? WHERE id = ?')
+      .run(lockedUntil.toISOString(), studentId);
   }
 }
 
 export async function recordSuccess(db, studentId) {
-  await db.prepare(
-    'UPDATE students SET failed_pin_attempts = 0, pin_locked_until = NULL WHERE id = ?'
-  ).run(studentId);
+  await db.prepare('UPDATE students SET failed_pin_attempts = 0, pin_locked_until = NULL WHERE id = ?').run(studentId);
 }

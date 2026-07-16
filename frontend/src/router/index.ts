@@ -7,6 +7,11 @@ const routes: Array<RouteRecordRaw> = [
   { path: '/login', component: () => import('@/views/LoginView.vue') },
   { path: '/register', component: () => import('@/views/RegisterView.vue') },
   {
+    path: '/platform',
+    component: () => import('@/views/SuperAdminView.vue'),
+    meta: { requiresAuth: true, allowedRoles: ['super_admin'] },
+  },
+  {
     path: '/app',
     component: () => import('@/views/TabsLayout.vue'),
     meta: { requiresAuth: true, allowedRoles: ['student', 'parent'] },
@@ -21,27 +26,27 @@ const routes: Array<RouteRecordRaw> = [
   {
     path: '/pay',
     component: () => import('@/views/cashier/TapToPayView.vue'),
-    meta: { requiresAuth: true, allowedRoles: ['shop_owner'] },
+    meta: { requiresAuth: true, allowedRoles: ['shop_owner', 'cashier'] },
   },
   {
     path: '/pin',
     component: () => import('@/views/cashier/PinEntryView.vue'),
-    meta: { requiresAuth: true, allowedRoles: ['shop_owner'] },
+    meta: { requiresAuth: true, allowedRoles: ['shop_owner', 'cashier'] },
   },
   {
     path: '/receipt',
     component: () => import('@/views/cashier/ReceiptView.vue'),
-    meta: { requiresAuth: true, allowedRoles: ['shop_owner'] },
+    meta: { requiresAuth: true, allowedRoles: ['shop_owner', 'cashier'] },
   },
   {
     path: '/dashboard',
     component: () => import('@/views/cashier/DashboardView.vue'),
-    meta: { requiresAuth: true, allowedRoles: ['shop_owner'] },
+    meta: { requiresAuth: true, allowedRoles: ['shop_owner', 'cashier'] },
   },
   {
     path: '/orders',
     component: () => import('@/views/cashier/OrdersView.vue'),
-    meta: { requiresAuth: true, allowedRoles: ['shop_owner'] },
+    meta: { requiresAuth: true, allowedRoles: ['shop_owner', 'cashier'] },
   },
   {
     path: '/admin',
@@ -74,7 +79,8 @@ router.beforeEach((to) => {
 
   const allowedRoles = to.meta.allowedRoles as string[] | undefined;
   if (allowedRoles && auth.student && !allowedRoles.includes(auth.student.role)) {
-    if (auth.student.role === 'shop_owner') return '/pay';
+    if (auth.student.role === 'super_admin') return '/platform';
+    if (auth.student.role === 'shop_owner' || auth.student.role === 'cashier') return '/pay';
     if (auth.student.role === 'school_admin') return '/admin/dashboard';
     return '/app/wallet';
   }

@@ -36,3 +36,7 @@
 import { IonPage, IonTabs, IonTabBar, IonTabButton, IonIcon, IonLabel, IonRouterOutlet } from '@ionic/vue';
 import { homeOutline, peopleOutline, statsChartOutline, wifiOutline, briefcaseOutline } from 'ionicons/icons';
 </script>
+
+<style scoped>
+ion-page { --background: var(--sp-bg); }
+</style>

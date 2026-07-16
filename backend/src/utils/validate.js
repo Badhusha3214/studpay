@@ -21,7 +21,7 @@ export function parseBalance(value, { max = MAX_AMOUNT } = {}) {
 }
 
 export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-export const PIN_RE   = /^\d{4,6}$/;
+export const PIN_RE = /^\d{4,6}$/;
 
 // Cap on POST /admin/students/bulk row count — generous for a school roster,
 // small enough that one request can't tie up the event loop indefinitely.

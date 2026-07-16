@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { authMiddleware, shopOwnerMiddleware } from '../middleware/auth.js';
+import { authMiddleware, shopOwnerMiddleware, shopStaffMiddleware } from '../middleware/auth.js';
 import { logAction } from '../services/auditLog.js';
 import { csvEscape } from '../utils/csv.js';
 
@@ -31,9 +31,18 @@ function buildOrderFilter(shopId, { status, from, to, q }) {
     conditions.push('o.status = ?');
     params.push(status);
   }
-  if (from) { conditions.push('o.created_at >= ?'); params.push(from); }
-  if (to) { conditions.push('o.created_at < ?'); params.push(to); }
-  if (q) { conditions.push('s.name ILIKE ?'); params.push(`%${q}%`); }
+  if (from) {
+    conditions.push('o.created_at >= ?');
+    params.push(from);
+  }
+  if (to) {
+    conditions.push('o.created_at < ?');
+    params.push(to);
+  }
+  if (q) {
+    conditions.push('s.name ILIKE ?');
+    params.push(`%${q}%`);
+  }
 
   return { conditions, params };
 }
@@ -55,24 +64,31 @@ function decodeCursor(cursor) {
 function orderToCsvRow(o) {
   const itemsSummary = (o.items || []).map((i) => `${i.name} x${i.quantity}`).join('; ');
   return [o.created_at, o.student_name, o.class, itemsSummary, o.amount, o.status, o.refund_reason || '']
-    .map(csvEscape).join(',');
+    .map(csvEscape)
+    .join(',');
 }
 
 // GET /shop/stats — today's sales summary for this shop
-app.get('/stats', authMiddleware, shopOwnerMiddleware, async (c) => {
+app.get('/stats', authMiddleware, shopStaffMiddleware, async (c) => {
   const db = c.get('db');
   const user = c.get('user');
   const merchant = await getMerchantName(db, user.id);
   const shopId = await getShopId(db, user.id);
 
-  const today = await db.prepare(`
+  const today = await db
+    .prepare(
+      `
     SELECT COUNT(*)::int AS count, COALESCE(SUM(amount), 0) AS revenue
     FROM transactions
     WHERE merchant = ? AND type = 'debit' AND created_at::date = CURRENT_DATE
-  `).get(merchant);
+  `
+    )
+    .get(merchant);
 
   const pending = shopId
-    ? await db.prepare(`SELECT COUNT(*)::int AS count FROM orders WHERE shop_id = ? AND status = 'pending_approval'`).get(shopId)
+    ? await db
+        .prepare(`SELECT COUNT(*)::int AS count FROM orders WHERE shop_id = ? AND status = 'pending_approval'`)
+        .get(shopId)
     : { count: 0 };
 
   return c.json({
@@ -84,25 +100,29 @@ app.get('/stats', authMiddleware, shopOwnerMiddleware, async (c) => {
 
 // GET /shop/transactions — this shop's transaction log (legacy — powers the
 // existing cashier Dashboard; the Orders tab uses GET /shop/orders instead)
-app.get('/transactions', authMiddleware, shopOwnerMiddleware, async (c) => {
+app.get('/transactions', authMiddleware, shopStaffMiddleware, async (c) => {
   const db = c.get('db');
   const user = c.get('user');
   const merchant = await getMerchantName(db, user.id);
 
   // t.* already includes t.student_id — no join-side alias needed for it.
-  const txns = await db.prepare(`
+  const txns = await db
+    .prepare(
+      `
     SELECT t.*, s.name AS student_name, s.class
     FROM transactions t JOIN students s ON t.student_id = s.id
     WHERE t.merchant = ?
     ORDER BY t.created_at DESC LIMIT 100
-  `).all(merchant);
+  `
+    )
+    .all(merchant);
 
   return c.json(txns);
 });
 
 // GET /shop/orders — cursor-paginated order list, scoped to the caller's shop.
 // ?status=&from=&to=&q=&cursor=&limit=
-app.get('/orders', authMiddleware, shopOwnerMiddleware, async (c) => {
+app.get('/orders', authMiddleware, shopStaffMiddleware, async (c) => {
   const db = c.get('db');
   const user = c.get('user');
   const shopId = await getShopId(db, user.id);
@@ -125,7 +145,9 @@ app.get('/orders', authMiddleware, shopOwnerMiddleware, async (c) => {
     }
   }
 
-  const rows = await db.prepare(`
+  const rows = await db
+    .prepare(
+      `
     SELECT o.id, o.student_id, s.name AS student_name, s.class, o.items, o.amount, o.status,
            o.refund_reason, o.refunded_at, o.created_at::text AS created_at
     FROM orders o
@@ -133,7 +155,9 @@ app.get('/orders', authMiddleware, shopOwnerMiddleware, async (c) => {
     WHERE ${conditions.join(' AND ')}
     ORDER BY o.created_at DESC, o.id DESC
     LIMIT ?
-  `).all(...params, limit + 1);
+  `
+    )
+    .all(...params, limit + 1);
 
   const hasMore = rows.length > limit;
   const page = hasMore ? rows.slice(0, limit) : rows;
@@ -164,23 +188,31 @@ app.patch('/orders/:id/refund', authMiddleware, shopOwnerMiddleware, async (c) =
   }
 
   const trimmedReason = String(reason).trim();
-  const updated = await db.prepare(`
+  const updated = await db
+    .prepare(
+      `
     UPDATE orders SET status = 'refund_pending', refund_reason = ?
     WHERE id = ? AND status = 'completed' RETURNING id
-  `).get(trimmedReason, id);
+  `
+    )
+    .get(trimmedReason, id);
   if (!updated) return c.json({ error: 'This order was already updated' }, 409);
 
   await logAction(db, {
-    actorId: user.id, actorRole: 'shop_owner', action: 'refund_requested',
-    entity: 'orders', entityId: order.id,
-    before: { status: 'completed' }, after: { status: 'refund_pending', reason: trimmedReason },
+    actorId: user.id,
+    actorRole: 'shop_owner',
+    action: 'refund_requested',
+    entity: 'orders',
+    entityId: order.id,
+    before: { status: 'completed' },
+    after: { status: 'refund_pending', reason: trimmedReason },
   });
 
   return c.json({ message: 'Refund requested — awaiting school admin approval' });
 });
 
 // GET /shop/orders/export — CSV of the current filtered view, capped for safety.
-app.get('/orders/export', authMiddleware, shopOwnerMiddleware, async (c) => {
+app.get('/orders/export', authMiddleware, shopStaffMiddleware, async (c) => {
   const db = c.get('db');
   const user = c.get('user');
   const shopId = await getShopId(db, user.id);
@@ -192,7 +224,9 @@ app.get('/orders/export', authMiddleware, shopOwnerMiddleware, async (c) => {
   const q = c.req.query('q');
   const { conditions, params } = buildOrderFilter(shopId, { status, from, to, q });
 
-  const rows = await db.prepare(`
+  const rows = await db
+    .prepare(
+      `
     SELECT s.name AS student_name, s.class, o.items, o.amount, o.status, o.refund_reason,
            o.created_at::text AS created_at
     FROM orders o
@@ -200,7 +234,9 @@ app.get('/orders/export', authMiddleware, shopOwnerMiddleware, async (c) => {
     WHERE ${conditions.join(' AND ')}
     ORDER BY o.created_at DESC
     LIMIT ?
-  `).all(...params, EXPORT_ROW_CAP);
+  `
+    )
+    .all(...params, EXPORT_ROW_CAP);
 
   const header = 'Date,Student,Class,Items,Amount,Status,Refund Reason';
   const csv = [header, ...rows.map(orderToCsvRow)].join('\n');

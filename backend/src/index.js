@@ -13,6 +13,7 @@ import parentRoutes from './routes/parent.js';
 import insightsRoutes from './routes/insights.js';
 import menuRoutes from './routes/menu.js';
 import adminRoutes from './routes/admin.js';
+import superAdminRoutes from './routes/superadmin.js';
 
 const app = new Hono();
 
@@ -53,6 +54,7 @@ app.route('/parent', parentRoutes);
 app.route('/api/insights', insightsRoutes);
 app.route('/menu', menuRoutes);
 app.route('/admin', adminRoutes);
+app.route('/superadmin', superAdminRoutes);
 
 app.notFound((c) => c.json({ error: 'Route not found' }, 404));
 

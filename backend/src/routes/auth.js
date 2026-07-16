@@ -24,7 +24,7 @@ function durationSeconds(value) {
 
 async function signToken(env, student) {
   const exp = Math.floor(Date.now() / 1000) + durationSeconds(env.JWT_EXPIRES_IN);
-  return sign({ id: student.id, role: student.role, name: student.name, exp }, env.JWT_SECRET, 'HS256');
+  return sign({ id: student.id, role: student.role, name: student.name, school_id: student.school_id || null, exp }, env.JWT_SECRET, 'HS256');
 }
 
 // POST /auth/register — self-service sign-up for parents and shop owners.
@@ -51,13 +51,17 @@ app.post('/register', async (c) => {
       if (!PIN_RE.test(String(pin))) throw new HttpError(400, 'PIN must be 4-6 digits');
       await assertEmailFree(db, email);
 
-      const id      = 'parent-' + uuidv4().slice(0, 8);
+      const id = 'parent-' + uuidv4().slice(0, 8);
       const pinHash = bcrypt.hashSync(String(pin), 10);
 
-      await db.prepare(`
+      await db
+        .prepare(
+          `
         INSERT INTO students (id, name, email, class, balance, pin_hash, role, phone)
         VALUES (?, ?, ?, 'Parent', 0, ?, 'parent', ?)
-      `).run(id, name, email, pinHash, phone || null);
+      `
+        )
+        .run(id, name, email, pinHash, phone || null);
 
       student = { id, name, email, class: 'Parent', balance: 0, role: 'parent', phone: phone || null };
     }
@@ -101,6 +105,7 @@ app.post('/login', async (c) => {
       balance: student.balance,
       role: student.role,
       merchant_name: student.merchant_name,
+      school_id: student.school_id || null,
     },
   });
 });

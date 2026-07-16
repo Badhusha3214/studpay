@@ -1,317 +1,49 @@
 <template>
   <ion-page>
-    <ion-header class="ion-no-border">
-      <ion-toolbar>
-        <ion-title>{{ auth.student?.merchant_name || 'Cashier Terminal' }}</ion-title>
-        <ion-buttons slot="end">
-          <ion-button @click="router.push('/orders')">
-            <ion-icon :icon="receiptOutline" slot="icon-only" />
-          </ion-button>
-          <ion-button @click="router.push('/dashboard')">
-            <ion-icon :icon="statsChartOutline" slot="icon-only" />
-          </ion-button>
-          <ion-button @click="logout">
-            <ion-icon :icon="logOutOutline" slot="icon-only" />
-          </ion-button>
-        </ion-buttons>
-      </ion-toolbar>
-    </ion-header>
-
+    <ion-header class="ion-no-border"><ion-toolbar><ion-title><span class="eyebrow">Canteen terminal</span>{{ auth.student?.merchant_name || 'Campus Kitchen' }}</ion-title><ion-buttons slot="end"><ion-button @click="router.push('/orders')"><ion-icon :icon="receiptOutline" slot="icon-only" /></ion-button><ion-button @click="router.push('/dashboard')"><ion-icon :icon="gridOutline" slot="icon-only" /></ion-button><ion-button @click="logout"><ion-icon :icon="logOutOutline" slot="icon-only" /></ion-button></ion-buttons></ion-toolbar></ion-header>
     <ion-content :fullscreen="true">
-      <!-- NFC ring -->
-      <div class="scan-hero">
-        <div class="nfc-ring" :class="{ 'nfc-pulse': scanning }">
-          <div class="nfc-inner">
-            <ion-icon :icon="wifiOutline" class="nfc-icon" />
-          </div>
+      <section class="terminal-hero fade-up"><div><p>Ready to serve</p><h1>Build an order,<br><em>then tap to pay.</em></h1></div><div class="tap-orb" :class="{ 'nfc-pulse': scanning }"><ion-icon :icon="wifiOutline" /></div></section>
+
+      <section class="menu-section fade-up"><div class="section-head"><div><p>Today’s menu</p><span>Tap a dish to add it</span></div><b>{{ cartCount }} item{{ cartCount === 1 ? '' : 's' }}</b></div>
+        <div v-if="menuLoading" class="menu-loader"><ion-spinner name="crescent" color="primary" /><span>Loading menu…</span></div>
+        <div v-else-if="groupedItems.length" class="food-grid">
+          <button v-for="item in displayItems" :key="item.id" class="food-choice" :class="{ selected: quantityFor(item.id) }" @click="addToCart(item)">
+            <span class="food-circle" :style="{ '--food': CATEGORY_COLORS[item.category] }">{{ foodIcon(item.category) }}</span><span class="food-name">{{ item.name }}</span><span class="food-price">₹{{ item.price }}</span>
+            <span v-if="quantityFor(item.id)" class="quantity-control" @click.stop><button @click="changeQty(item, -1)">−</button><b>{{ quantityFor(item.id) }}</b><button @click="changeQty(item, 1)">+</button></span>
+          </button>
         </div>
-        <h2 class="scan-title">{{ scanning ? 'Waiting for card...' : 'Ready to Accept Payment' }}</h2>
-        <p class="scan-sub">{{ scanning ? 'Ask student to tap their ID card' : 'Enter amount then scan student ID' }}</p>
-      </div>
+        <div v-else class="empty-menu"><ion-icon :icon="restaurantOutline" /><p>No menu items available yet</p></div>
+      </section>
 
-      <!-- Amount + description (free-text mode, hidden once a cart exists) -->
-      <div v-if="cart.length === 0" class="c-card fade-up">
-        <p class="field-label">Description</p>
-        <ion-input v-model="description" placeholder="e.g. Lunch combo" class="c-input-inline" />
-
-        <p class="field-label" style="margin-top:16px">Amount (₹)</p>
-        <div class="amount-row">
-          <span class="rupee">₹</span>
-          <ion-input v-model="amount" type="number" placeholder="0" class="amount-input" />
-        </div>
-
-        <div class="chip-row">
-          <div
-            v-for="a in [20, 30, 50, 100]" :key="a"
-            class="amt-chip" :class="{ active: Number(amount) === a }"
-            @click="amount = String(a)"
-          >₹{{ a }}</div>
-        </div>
-      </div>
-
-      <!-- Cart (shown once at least one item has been added) -->
-      <div v-else class="c-card fade-up">
-        <p class="field-label">Cart</p>
-        <div v-for="line in cart" :key="line.item.id" class="cart-row">
-          <div class="cart-row-info">
-            <p class="cart-row-name">{{ line.item.name }}</p>
-            <p class="cart-row-meta">₹{{ line.item.price }} each</p>
-          </div>
-          <div class="qty-stepper">
-            <button class="qty-btn" @click="changeQty(line.item, -1)">−</button>
-            <span class="qty-val">{{ line.quantity }}</span>
-            <button class="qty-btn" @click="changeQty(line.item, 1)">+</button>
-          </div>
-          <div class="cart-row-total">₹{{ line.item.price * line.quantity }}</div>
-        </div>
-        <div class="cart-total-row">
-          <span>Total</span>
-          <strong>₹{{ cartTotal }}</strong>
-        </div>
-        <button class="clear-cart-btn" @click="cart = []">Clear Cart</button>
-      </div>
-
-      <!-- Menu items -->
-      <div v-if="groupedItems.length" class="c-card fade-up menu-card">
-        <p class="field-label">Menu Items</p>
-        <div v-for="group in groupedItems" :key="group.category" class="item-group">
-          <div class="item-group-label">
-            <span class="cat-dot" :style="{ background: CATEGORY_COLORS[group.category] }" />
-            {{ CATEGORY_LABELS[group.category] }}
-          </div>
-          <div class="chip-row">
-            <div
-              v-for="item in group.items" :key="item.id"
-              class="item-chip" :class="{ active: cart.some((l) => l.item.id === item.id) }"
-              @click="addToCart(item)"
-            >{{ item.name }} · ₹{{ item.price }}</div>
-          </div>
-        </div>
-      </div>
-
-      <div class="btn-wrap">
-        <ion-button
-          expand="block" class="scan-btn"
-          :disabled="!effectiveAmount || effectiveAmount <= 0 || scanning"
-          @click="startScanFlow"
-        >
-          <ion-icon :icon="wifiOutline" slot="start" />
-          {{ scanning ? 'Scanning...' : 'Scan Student Card' }}
-        </ion-button>
-      </div>
-
-      <p v-if="statusMsg" class="status-msg" :class="statusClass">{{ statusMsg }}</p>
+      <section class="checkout-card fade-up" :class="{ active: cart.length }"><div class="checkout-top"><div><p>Order total</p><strong>₹{{ cartTotal.toFixed(2) }}</strong></div><span>{{ cart.length ? cartDescription : 'Select food to begin' }}</span></div><div v-if="cart.length" class="cart-preview"><span v-for="line in cart" :key="line.item.id">{{ line.item.name }} ×{{ line.quantity }}</span></div>
+        <ion-button expand="block" class="scan-btn" :disabled="!cart.length || scanning" @click="startScanFlow"><ion-spinner v-if="scanning" name="crescent" /><template v-else><ion-icon :icon="wifiOutline" slot="start" />Tap student card to pay</template></ion-button>
+      </section>
+      <p v-if="statusMsg" class="status-msg" :class="statusClass">{{ statusMsg }}</p><div style="height:24px" />
     </ion-content>
   </ion-page>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
-import { useRouter } from 'vue-router';
-import {
-  IonPage, IonHeader, IonToolbar, IonTitle, IonButtons, IonButton,
-  IonContent, IonInput, IonIcon,
-} from '@ionic/vue';
-import { wifiOutline, logOutOutline, statsChartOutline, receiptOutline } from 'ionicons/icons';
-import { useNfc } from '@/composables/useNfc';
-import { useCashierStore } from '@/store/cashier';
-import { useAuthStore } from '@/store/auth';
-import api from '@/composables/useApi';
-
-interface MenuItem { id: string; name: string; category: string; price: number; active: number }
-
-const CATEGORY_ORDER  = ['junk', 'healthy', 'beverage', 'snack', 'meal', 'other'];
-const CATEGORY_COLORS: Record<string, string> = {
-  junk: '#2a78d6', healthy: '#1baf7a', beverage: '#eda100',
-  snack: '#008300', meal: '#4a3aa7', other: '#9a9a94',
-};
-const CATEGORY_LABELS: Record<string, string> = {
-  junk: 'Junk Food', healthy: 'Healthy', beverage: 'Beverage',
-  snack: 'Snack', meal: 'Meal', other: 'Other',
-};
-
-const router  = useRouter();
-const store   = useCashierStore();
-const auth    = useAuthStore();
-const { scanning, startScan, error: nfcError } = useNfc();
-
-interface CartLine { item: MenuItem; quantity: number }
-
-const amount      = ref('');
-const description = ref('');
-const statusMsg   = ref('');
-const statusClass = ref('');
-const menuItems   = ref<MenuItem[]>([]);
-const cart        = ref<CartLine[]>([]);
-
-const groupedItems = computed(() => CATEGORY_ORDER
-  .map((category) => ({ category, items: menuItems.value.filter((i) => i.category === category && i.active) }))
-  .filter((g) => g.items.length > 0));
-
-const cartTotal = computed(() => cart.value.reduce((sum, l) => sum + l.item.price * l.quantity, 0));
-const cartDescription = computed(() => cart.value.map((l) => `${l.item.name} ×${l.quantity}`).join(', '));
-
-// The values actually used to charge the card — the cart total/description
-// once anything's been added, otherwise the free-text amount/description.
-const effectiveAmount      = computed(() => (cart.value.length ? cartTotal.value : Number(amount.value)));
-const effectiveDescription = computed(() => (cart.value.length ? cartDescription.value : (description.value || 'Payment')));
-
-async function loadMenuItems() {
-  try {
-    const { data } = await api.get('/menu/items');
-    menuItems.value = data;
-  } catch { /* menu items are optional — billing still works with free-text amounts */ }
-}
-
-function addToCart(item: MenuItem) {
-  const line = cart.value.find((l) => l.item.id === item.id);
-  if (line) line.quantity += 1;
-  else cart.value.push({ item, quantity: 1 });
-}
-
-function changeQty(item: MenuItem, delta: number) {
-  const line = cart.value.find((l) => l.item.id === item.id);
-  if (!line) return;
-  line.quantity += delta;
-  if (line.quantity <= 0) cart.value = cart.value.filter((l) => l.item.id !== item.id);
-}
-
-async function startScanFlow() {
-  statusMsg.value = '';
-  if (!effectiveAmount.value || effectiveAmount.value <= 0) return;
-
-  try {
-    const uid = await startScan();
-
-    // Look up the student linked to this NFC tag
-    const { data } = await api.post('/nfc/lookup', { uid });
-    const student = data.student;
-
-    const cartPayload = cart.value.length
-      ? cart.value.map((l) => ({ menuItemId: l.item.id, quantity: l.quantity }))
-      : null;
-    store.setPending(effectiveAmount.value, effectiveDescription.value, cartPayload);
-    store.setScanned(uid, {
-      name: student.name,
-      class: student.class,
-      balance: student.balance,
-      allergies: student.allergies,
-      uid,
-    });
-
-    statusMsg.value   = `Card detected — ${student.name}`;
-    statusClass.value = 'success';
-
-    setTimeout(() => router.push('/pin'), 600);
-  } catch (e: any) {
-    statusMsg.value   = e?.response?.data?.error || nfcError.value || 'Card not found or scan failed';
-    statusClass.value = 'error';
-  }
-}
-
-function logout() {
-  auth.logout();
-  router.replace('/login');
-}
-
-onMounted(loadMenuItems);
+import { ref, computed, onMounted } from 'vue'; import { useRouter } from 'vue-router';
+import { IonPage, IonHeader, IonToolbar, IonTitle, IonButtons, IonButton, IonContent, IonIcon, IonSpinner, alertController } from '@ionic/vue';
+import { wifiOutline, logOutOutline, gridOutline, receiptOutline, restaurantOutline } from 'ionicons/icons';
+import { useNfc } from '@/composables/useNfc'; import { useCashierStore } from '@/store/cashier'; import { useAuthStore } from '@/store/auth'; import api from '@/composables/useApi'; import { CATEGORY_COLORS } from '@/composables/useCategoryMeta';
+interface MenuItem { id: string; name: string; category: string; price: number; active: number } interface CartLine { item: MenuItem; quantity: number }
+const router = useRouter(); const store = useCashierStore(); const auth = useAuthStore(); const { scanning, startScan, error: nfcError } = useNfc();
+const statusMsg = ref(''); const statusClass = ref(''); const menuItems = ref<MenuItem[]>([]); const cart = ref<CartLine[]>([]); const menuLoading = ref(false);
+const groupedItems = computed(() => menuItems.value.filter(i => i.active)); const displayItems = computed(() => groupedItems.value); const cartTotal = computed(() => cart.value.reduce((sum, line) => sum + line.item.price * line.quantity, 0)); const cartCount = computed(() => cart.value.reduce((sum, line) => sum + line.quantity, 0)); const cartDescription = computed(() => cart.value.map(line => `${line.item.name} ×${line.quantity}`).join(' · '));
+function foodIcon(category: string) { return ({ junk: '🍔', healthy: '🥗', beverage: '🧃', snack: '🥨', meal: '🍱', other: '🍪' } as Record<string, string>)[category] || '🍽️'; }
+function quantityFor(id: string) { return cart.value.find(line => line.item.id === id)?.quantity || 0; }
+async function loadMenuItems() { menuLoading.value = true; try { const { data } = await api.get('/menu/items'); menuItems.value = data; } finally { menuLoading.value = false; } }
+function addToCart(item: MenuItem) { const line = cart.value.find(l => l.item.id === item.id); if (line) line.quantity += 1; else cart.value.push({ item, quantity: 1 }); }
+function changeQty(item: MenuItem, delta: number) { const line = cart.value.find(l => l.item.id === item.id); if (!line) return; line.quantity += delta; if (line.quantity <= 0) cart.value = cart.value.filter(l => l.item.id !== item.id); }
+async function startScanFlow() { statusMsg.value = ''; try { const uid = await startScan(); const { data } = await api.post('/nfc/lookup', { uid }); const student = data.student; store.setPending(cartTotal.value, cartDescription.value, cart.value.map(l => ({ menuItemId: l.item.id, quantity: l.quantity }))); store.setScanned(uid, { name: student.name, class: student.class, balance: student.balance, allergies: student.allergies, uid }); statusMsg.value = `Card detected — ${student.name}`; statusClass.value = 'success'; setTimeout(() => router.push('/pin'), 550); } catch (e: any) { statusMsg.value = e?.response?.data?.error || nfcError.value || 'Card not found or scan failed'; statusClass.value = 'error'; } }
+async function logout() { const alert = await alertController.create({ header: 'Log out of terminal?', message: 'You will need to sign in again before taking payments.', buttons: [{ text: 'Cancel', role: 'cancel' }, { text: 'Log out', role: 'destructive', handler: () => { auth.logout(); router.replace('/login'); } }] }); await alert.present(); } onMounted(loadMenuItems);
 </script>
 
 <style scoped>
-.scan-hero {
-  display: flex; flex-direction: column; align-items: center;
-  padding: 36px 24px 20px;
-}
-
-.nfc-ring {
-  width: 140px; height: 140px; border-radius: 50%;
-  background: var(--c-green-light);
-  display: flex; align-items: center; justify-content: center;
-  margin-bottom: 20px; position: relative;
-}
-.nfc-ring::before {
-  content: ''; position: absolute; inset: -10px;
-  border-radius: 50%; border: 2px dashed rgba(27,153,139,0.25);
-}
-.nfc-inner {
-  width: 100px; height: 100px; border-radius: 50%;
-  background: var(--c-green);
-  display: flex; align-items: center; justify-content: center;
-  box-shadow: 0 8px 24px rgba(27,153,139,0.4);
-}
-.nfc-icon { font-size: 46px; color: white; transform: rotate(90deg); }
-
-.scan-title { font-size: 20px; font-weight: 800; margin: 0; color: var(--c-text); text-align: center; }
-.scan-sub   { font-size: 13px; color: var(--c-subtext); text-align: center; margin: 6px 0 0; }
-
-.field-label {
-  font-size: 12px; font-weight: 700; text-transform: uppercase;
-  letter-spacing: 0.05em; color: var(--c-subtext); margin: 0 0 6px;
-}
-.c-input-inline { --background: var(--c-bg); --padding-start: 14px; border-radius: 10px; font-size: 15px; }
-
-.amount-row {
-  display: flex; align-items: center; gap: 4px;
-  background: var(--c-bg); border-radius: 12px; padding: 0 14px;
-}
-.rupee { font-size: 22px; font-weight: 700; color: var(--c-green); }
-.amount-input { flex: 1; --background: transparent; font-size: 28px; font-weight: 800; --color: var(--c-text); }
-
-.chip-row { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
-.amt-chip {
-  padding: 6px 16px; border-radius: 100px;
-  background: var(--c-bg); font-size: 13px; font-weight: 600;
-  color: var(--c-subtext); cursor: pointer; border: 2px solid transparent; transition: all 0.15s;
-}
-.amt-chip.active { background: var(--c-green-light); color: var(--c-green); border-color: var(--c-green); }
-
-.cart-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; }
-.cart-row + .cart-row { border-top: 1px solid var(--c-border); }
-.cart-row-info { flex: 1; min-width: 0; }
-.cart-row-name { font-size: 14px; font-weight: 700; margin: 0; color: var(--c-text); }
-.cart-row-meta { font-size: 11px; color: var(--c-subtext); margin: 2px 0 0; }
-.qty-stepper { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
-.qty-btn {
-  width: 26px; height: 26px; border-radius: 8px; border: none;
-  background: var(--c-bg); color: var(--c-text);
-  font-size: 16px; font-weight: 700; cursor: pointer; line-height: 1;
-}
-.qty-val { font-size: 14px; font-weight: 700; min-width: 16px; text-align: center; }
-.cart-row-total { font-size: 14px; font-weight: 700; color: var(--c-text); width: 52px; text-align: right; flex-shrink: 0; }
-.cart-total-row {
-  display: flex; justify-content: space-between; align-items: center;
-  padding: 12px 0 4px; margin-top: 6px; border-top: 2px solid var(--c-border);
-  font-size: 14px; color: var(--c-subtext);
-}
-.cart-total-row strong { font-size: 18px; color: var(--c-green); }
-.clear-cart-btn {
-  width: 100%; margin-top: 12px; padding: 10px; border-radius: 10px; border: none;
-  background: var(--c-bg); color: var(--c-orange); font-size: 13px; font-weight: 700; cursor: pointer;
-}
-
-.menu-card { margin-top: 12px; }
-.item-group { margin-top: 14px; }
-.item-group:first-of-type { margin-top: 8px; }
-.item-group-label {
-  display: flex; align-items: center; gap: 6px;
-  font-size: 11px; font-weight: 700; text-transform: uppercase;
-  letter-spacing: 0.05em; color: var(--c-subtext); margin-bottom: 8px;
-}
-.cat-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-.item-chip {
-  padding: 6px 14px; border-radius: 100px;
-  background: var(--c-bg); font-size: 13px; font-weight: 600;
-  color: var(--c-subtext); cursor: pointer; border: 2px solid transparent; transition: all 0.15s;
-}
-.item-chip.active { background: var(--c-green-light); color: var(--c-green); border-color: var(--c-green); }
-
-.btn-wrap { padding: 0 16px; margin-top: 8px; }
-.scan-btn {
-  --background: linear-gradient(135deg, var(--c-green) 0%, #2DCAB8 100%);
-  --border-radius: 16px; height: 56px; font-size: 16px; font-weight: 700;
-}
-
-.status-msg { text-align: center; font-size: 13px; font-weight: 600; padding: 8px 16px; }
-.status-msg.success { color: var(--c-green); }
-.status-msg.error   { color: var(--c-orange); }
+.eyebrow { display:block; color:var(--c-green); font-size:9px; font-weight:850; letter-spacing:.12em; text-transform:uppercase; margin-bottom:1px; }.terminal-hero { margin:8px 16px 14px; padding:22px; border-radius:27px; background:linear-gradient(135deg,#102f39,#007b70 58%,#00b894); color:#fff; display:flex; align-items:center; justify-content:space-between; box-shadow:var(--c-shadow-lg); overflow:hidden; position:relative; }.terminal-hero::after { content:''; position:absolute; width:150px; height:150px; border:22px solid rgba(255,255,255,.11); border-radius:50%; right:-75px; bottom:-92px; }.terminal-hero p,.terminal-hero h1 { margin:0; }.terminal-hero p { font-size:11px; font-weight:700; opacity:.72; }.terminal-hero h1 { margin-top:7px; font-size:24px; line-height:1.03; letter-spacing:-.05em; }.terminal-hero em { font-style:normal; color:#8ffff0; }.tap-orb { width:64px; height:64px; border-radius:50%; display:grid; place-items:center; color:#fff; background:rgba(255,255,255,.18); border:1px solid rgba(255,255,255,.35); font-size:30px; position:relative; z-index:1; }.tap-orb ion-icon { transform:rotate(90deg); }
+.menu-section { margin:0 16px; }.section-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }.section-head p { margin:0; font-size:15px; font-weight:850; letter-spacing:-.02em; }.section-head span { color:var(--c-subtext); font-size:11px; }.section-head > b { padding:6px 9px; border-radius:99px; background:var(--c-green-light); color:var(--c-green-dark); font-size:10px; }.food-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; }.food-choice { border:1px solid transparent; background:rgba(255,255,255,.74); border-radius:22px; padding:10px 5px 9px; position:relative; color:var(--c-text); min-height:136px; box-shadow:var(--c-shadow); transition:transform .2s ease,border-color .2s ease; }.food-choice:active { transform:scale(.96); }.food-choice.selected { border-color:var(--c-green); background:#fff; }.food-circle { width:58px; height:58px; border-radius:50%; margin:auto; display:grid; place-items:center; font-size:29px; background:color-mix(in srgb,var(--food) 16%,white); box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--food) 25%,transparent); }.food-name { display:block; margin:7px 3px 2px; font-size:11px; line-height:1.1; font-weight:800; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.food-price { font-size:10px; color:var(--c-subtext); font-weight:700; }.quantity-control { position:absolute; left:50%; bottom:-13px; transform:translateX(-50%); display:flex; align-items:center; gap:5px; padding:3px; border-radius:999px; background:#102f39; color:white; box-shadow:0 6px 15px rgba(16,47,57,.23); }.quantity-control button { height:22px; width:22px; padding:0; border:0; border-radius:50%; background:#1d575d; color:#fff; font-size:18px; line-height:1; }.quantity-control b { min-width:13px; font-size:11px; }.menu-loader,.empty-menu { display:flex; align-items:center; justify-content:center; gap:8px; min-height:185px; border-radius:24px; color:var(--c-subtext); font-size:13px; background:rgba(255,255,255,.55); }.empty-menu { flex-direction:column; }.empty-menu ion-icon { font-size:36px; color:var(--c-green); }
+.checkout-card { margin:27px 16px 0; padding:17px; border-radius:25px; color:#fff; background:#193c43; box-shadow:var(--c-shadow-lg); }.checkout-card.active { background:linear-gradient(130deg,#183d44,#007c70); }.checkout-top { display:flex; justify-content:space-between; gap:12px; }.checkout-top p { margin:0; font-size:10px; opacity:.65; text-transform:uppercase; letter-spacing:.1em; font-weight:800; }.checkout-top strong { font-size:28px; letter-spacing:-.05em; }.checkout-top > span { max-width:48%; align-self:end; color:#b4eae4; font-size:10px; text-align:right; line-height:1.3; }.cart-preview { display:flex; gap:6px; overflow:auto; margin:10px 0; }.cart-preview span { white-space:nowrap; padding:4px 7px; border-radius:99px; background:rgba(255,255,255,.12); font-size:10px; }.scan-btn { --background: #fff; --color: #0d4b49; --border-radius:15px; height:49px; margin:0; font-size:14px; }.status-msg { text-align:center; font-size:12px; font-weight:750; padding:9px 16px; }.status-msg.success { color:var(--c-green-dark); }.status-msg.error { color:var(--c-orange); }
+.food-grid { grid-template-columns:repeat(3,minmax(0,1fr)); }.food-choice { min-width:0; }.food-name { min-height:24px; white-space:normal; }.food-price { display:block; line-height:1.1; }
 </style>

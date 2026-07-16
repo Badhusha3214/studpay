@@ -176,3 +176,76 @@ All `/admin/*` routes must verify the authenticated admin's `school_id` matches 
 - A school admin can onboard a new student, deactivate a lost card, and pull a weekly spending report without contacting DevMorphix.
 - A shop owner can see today's orders and issue a refund without needing database access.
 - No cross-shop or cross-school data leakage in any new endpoint.
+
+---
+
+## 11. Code Quality & Infrastructure Fixes (July 2026)
+
+The following issues were identified during a full project audit and have been resolved:
+
+### 11.1 Security
+
+| Issue | Fix |
+|---|---|
+| `.env` / `.dev.vars` with real secrets (DB password, JWT secret, Supabase keys) were in the repo | Created `.env.example` and `.dev.vars.example` templates with placeholder values. Updated `.gitignore` to exclude these files. **Action required:** rotate all exposed credentials immediately. |
+| Hyperdrive binding ID was a placeholder (`REPLACE_WITH_REAL_HYPERDRIVE_ID`) | Added setup instructions in `wrangler.toml` comments. Replace with real ID before deploying. |
+| Stale `studpay.db` SQLite file committed | Deleted. The app now uses PostgreSQL exclusively. |
+
+### 11.2 Multi-Tenancy Enforcement
+
+| Issue | Fix |
+|---|---|
+| `school_id` column existed on tables but no route filtered by it — cross-school data leakage possible | Added `school_id` filtering to all admin routes: `/admin/dashboard`, `/admin/analytics/overview`, `/admin/shops`, `/admin/staff`, `/admin/approvals`, `/admin/refunds`, `/admin/reports/spending`, `/admin/reports/emergency-fund`. Also added filtering to `/students` and `/nfc/cards` list endpoints. |
+| No `getSchoolId()` helper | Added to `middleware/auth.js` — extracts `school_id` from the JWT payload. |
+| Seed data lacked `school_id` | All demo users now have `school_id = 'school-demo-001'`. |
+| New shop creation didn't set `school_id` | `POST /admin/shops` now writes the admin's `school_id` to the new shop row. |
+
+### 11.3 Database Performance
+
+| Issue | Fix |
+|---|---|
+| `family.js` (`getChildrenFor`, `getParentFor`) did full table scans of `students` filtering in JavaScript | Rewrote to use SQL queries with `WHERE surname = ? AND lower(split_part(email, '@', 2)) = ?`. |
+| No index on surname + email domain for family lookup | Added `idx_students_surname_domain` partial index on `students(surname, lower(split_part(email, '@', 2)))`. |
+| Added `surname` column with auto-population trigger | New column on `students` table; a `BEFORE INSERT OR UPDATE` trigger extracts the last word from `name` and lowercases it. |
+| Missing indexes for common query patterns | Added: `idx_students_role_active`, `idx_students_school_id`, `idx_shops_school_id`, `idx_transactions_student_type`, `idx_cards_uid_active`. |
+
+### 11.4 Frontend Error Handling
+
+| Issue | Fix |
+|---|---|
+| 28 `try/finally` blocks across 12 views had no `catch` — API failures caused silent unhandled promise rejections | Added `catch (err) { console.error(...) }` to all 28 instances across: `HistoryView`, `admin/AnalyticsView`, `admin/ApprovalsView`, `admin/DashboardView`, `admin/RefundsView` (3x), `admin/StudentsView` (5x), `admin/StaffAccountsView` (4x), `admin/ShopsView` (3x), `admin/CardsView` (2x), `admin/ReportsView` (3x), `cashier/OrdersView` (3x), `cashier/DashboardView`. |
+
+### 11.5 Linting & Formatting
+
+| What | Details |
+|---|---|
+| ESLint (backend) | `.eslintrc.json` — extends `eslint:recommended`, warns on `no-console` and `no-unused-vars`. |
+| ESLint (frontend) | `.eslintrc.json` — extends `vue3-recommended` + `@typescript-eslint/recommended`. |
+| Prettier (both) | `.prettierrc` — single quotes, trailing commas, 120 char width, LF line endings. |
+| Lint scripts | `npm run lint` and `npm run lint:fix` added to both `package.json` files. |
+| Format scripts | `npm run format` added to both `package.json` files. |
+
+### 11.6 CI/CD
+
+| What | Details |
+|---|---|
+| GitHub Actions | `.github/workflows/ci.yml` — runs on push to `main`/`develop` and PRs to `main`. |
+| Jobs | `backend-lint`, `frontend-lint`, `frontend-typecheck` (`vue-tsc --noEmit`), `frontend-build`. |
+| Node version | Pinned to `22` across all jobs. |
+
+### 11.7 Test Framework
+
+| What | Details |
+|---|---|
+| Vitest | Added to both `backend/package.json` and `frontend/package.json` as a dev dependency. |
+| Config | `frontend/vitest.config.ts` — jsdom environment, `@` alias, globals enabled. |
+| Scripts | `npm run test` (single run) and `npm run test:watch` (watch mode) in both packages. |
+| Test location | `src/**/*.{test,spec}.{ts,js}` — no tests written yet, but the framework is ready. |
+
+### 11.8 Remaining Items
+
+| Item | Status |
+|---|---|
+| Capacitor iOS | Not added. The `frontend/package.json` has an `ios` script, but generating the native project requires running `npx cap add ios` locally (needs Xcode). |
+| Real test coverage | Vitest is configured but no test files exist yet. Priority: wallet transaction tests, auth middleware tests, family lookup tests. |
+| PRD Open Questions (§8) | Still unresolved — need product decisions on student name masking, refund thresholds, admin sub-accounts, and CSV import mapping. |

@@ -5,11 +5,13 @@ node_modules/
 dist/
 build/
 
-# Environment
+# Environment (NEVER commit real secrets)
 .env
 .env.local
 .env.*.local
 .dev.vars
+.env.example
+.dev.vars.example
 
 # Wrangler (Cloudflare Workers)
 .wrangler/
@@ -19,7 +21,7 @@ build/
 *.db-shm
 *.db-wal
 
-# Capacitor / Android
+# Capacitor / Android / iOS
 android/
 ios/
 .capacitor/
@@ -42,3 +44,9 @@ Thumbs.db
 
 # TypeScript cache
 *.tsbuildinfo
+
+# Coverage reports
+coverage/
+
+# Test results
+test-results/

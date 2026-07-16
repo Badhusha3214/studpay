@@ -1,5 +1,5 @@
 <template>
-  <ion-page>
+  <template>
     <ion-header class="ion-no-border">
       <ion-toolbar>
         <ion-title>Dashboard</ion-title>
@@ -77,14 +77,14 @@
 
       <div style="height: 24px" />
     </ion-content>
-  </ion-page>
+  </template>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import {
-  IonPage, IonHeader, IonToolbar, IonTitle, IonButtons, IonButton, IonContent,
+  IonHeader, IonToolbar, IonTitle, IonButtons, IonButton, IonContent,
   IonIcon, IonSpinner, IonRefresher, IonRefresherContent,
 } from '@ionic/vue';
 import {
@@ -107,7 +107,7 @@ interface Dashboard {
 const router = useRouter();
 const auth   = useAuthStore();
 
-const loading = ref(false);
+const loading = ref(true);
 const data    = ref<Dashboard | null>(null);
 
 async function load() {
@@ -115,6 +115,8 @@ async function load() {
   try {
     const { data: res } = await api.get('/admin/dashboard');
     data.value = res;
+  } catch (err: any) {
+    console.error('Failed to load dashboard:', err?.response?.data?.error || err.message);
   } finally {
     loading.value = false;
   }
@@ -153,4 +155,5 @@ onMounted(load);
 .chevron { color: var(--sp-subtext); flex-shrink: 0; }
 
 .center { display: flex; justify-content: center; padding: 32px; }
+ion-content { --background: var(--sp-bg); }
 </style>

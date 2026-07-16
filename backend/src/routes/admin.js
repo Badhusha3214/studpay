@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
-import { authMiddleware, schoolAdminMiddleware } from '../middleware/auth.js';
+import { authMiddleware, schoolAdminMiddleware, getSchoolId } from '../middleware/auth.js';
 import { createShopOwnerAccount, assertEmailFree } from '../services/accounts.js';
 import { recordSuccess } from '../services/pinAuth.js';
 import { logAction } from '../services/auditLog.js';
@@ -59,13 +59,17 @@ app.post('/students/bulk', authMiddleware, schoolAdminMiddleware, async (c) => {
 
       await assertEmailFree(db, email);
 
-      const id      = 'stu-' + uuidv4().slice(0, 8);
+      const id = 'stu-' + uuidv4().slice(0, 8);
       const pinHash = bcrypt.hashSync(String(pin), 10);
 
-      await db.prepare(`
+      await db
+        .prepare(
+          `
         INSERT INTO students (id, name, email, class, balance, pin_hash, role)
         VALUES (?, ?, ?, ?, ?, ?, 'student')
-      `).run(id, name, email, cls, balance, pinHash);
+      `
+        )
+        .run(id, name, email, cls, balance, pinHash);
 
       succeeded += 1;
       results.push({ row: rowNum, status: 'success', id, email });
@@ -84,16 +88,25 @@ app.post('/students/bulk', authMiddleware, schoolAdminMiddleware, async (c) => {
 // GET /admin/staff?role=shop_owner|school_admin — list staff accounts
 app.get('/staff', authMiddleware, schoolAdminMiddleware, async (c) => {
   const db = c.get('db');
+  const schoolId = getSchoolId(c);
   const role = c.req.query('role');
-  const roles = role && ['shop_owner', 'school_admin'].includes(role) ? [role] : ['shop_owner', 'school_admin'];
+  const roles = role && ['shop_owner', 'school_admin', 'cashier'].includes(role) ? [role] : ['shop_owner', 'school_admin', 'cashier'];
   const placeholders = roles.map(() => '?').join(', ');
 
-  const staff = await db.prepare(`
+  const params = [...roles];
+  const schoolFilter = schoolId ? 'AND school_id = ?' : '';
+  if (schoolId) params.push(schoolId);
+
+  const staff = await db
+    .prepare(
+      `
     SELECT id, name, email, merchant_name, phone, role, active, created_at
     FROM students
-    WHERE role IN (${placeholders})
+    WHERE role IN (${placeholders}) ${schoolFilter}
     ORDER BY role, name
-  `).all(...roles);
+  `
+    )
+    .all(...params);
 
   return c.json(staff);
 });
@@ -106,10 +119,56 @@ app.post('/shop-owners', authMiddleware, schoolAdminMiddleware, async (c) => {
   try {
     const student = await createShopOwnerAccount(db, { name, email, pin, merchantName, phone, shopId });
     await logAction(db, {
-      actorId: user.id, actorRole: 'school_admin', action: 'cashier_created',
-      entity: 'students', entityId: student.id, after: { merchant_name: student.merchant_name, shop_id: student.shop_id },
+      actorId: user.id,
+      actorRole: 'school_admin',
+      action: 'cashier_created',
+      entity: 'students',
+      entityId: student.id,
+      after: { merchant_name: student.merchant_name, shop_id: student.shop_id },
     });
     return c.json(student, 201);
+  } catch (err) {
+    if (err instanceof HttpError) return c.json(err.body, err.status);
+    throw err;
+  }
+});
+
+// POST /admin/cashiers — provision a cashier account (limited role: can process
+// payments but cannot manage menus, items, or shops)
+app.post('/cashiers', authMiddleware, schoolAdminMiddleware, async (c) => {
+  const db = c.get('db');
+  const user = c.get('user');
+  const schoolId = getSchoolId(c);
+  const { name, email, pin, phone, shopId } = await c.req.json();
+
+  try {
+    if (!name || !email || !pin) throw new HttpError(400, 'name, email and pin are required');
+    if (!EMAIL_RE.test(email)) throw new HttpError(400, 'Enter a valid email address');
+    if (!PIN_RE.test(String(pin))) throw new HttpError(400, 'PIN must be 4-6 digits');
+    await assertEmailFree(db, email);
+
+    const id = 'cashier-' + uuidv4().slice(0, 8);
+    const pinHash = bcrypt.hashSync(String(pin), 10);
+
+    await db
+      .prepare(
+        `
+      INSERT INTO students (id, name, email, class, balance, pin_hash, role, phone, school_id, shop_id)
+      VALUES (?, ?, ?, 'Staff', 0, ?, 'cashier', ?, ?, ?)
+    `
+      )
+      .run(id, name, email, pinHash, phone || null, schoolId, shopId || null);
+
+    await logAction(db, {
+      actorId: user.id,
+      actorRole: 'school_admin',
+      action: 'cashier_created',
+      entity: 'students',
+      entityId: id,
+      after: { role: 'cashier' },
+    });
+
+    return c.json({ id, name, email, class: 'Staff', balance: 0, role: 'cashier' }, 201);
   } catch (err) {
     if (err instanceof HttpError) return c.json(err.body, err.status);
     throw err;
@@ -127,13 +186,17 @@ app.post('/school-admins', authMiddleware, schoolAdminMiddleware, async (c) => {
     if (!PIN_RE.test(String(pin))) throw new HttpError(400, 'PIN must be 4-6 digits');
     await assertEmailFree(db, email);
 
-    const id      = 'schooladmin-' + uuidv4().slice(0, 8);
+    const id = 'schooladmin-' + uuidv4().slice(0, 8);
     const pinHash = bcrypt.hashSync(String(pin), 10);
 
-    await db.prepare(`
+    await db
+      .prepare(
+        `
       INSERT INTO students (id, name, email, class, balance, pin_hash, role)
       VALUES (?, ?, ?, 'Admin', 0, ?, 'school_admin')
-    `).run(id, name, email, pinHash);
+    `
+      )
+      .run(id, name, email, pinHash);
 
     return c.json({ id, name, email, class: 'Admin', balance: 0, role: 'school_admin' }, 201);
   } catch (err) {
@@ -153,9 +216,13 @@ app.patch('/students/:id/reactivate', authMiddleware, schoolAdminMiddleware, asy
   if (!row) return c.json({ error: 'Not found' }, 404);
 
   await logAction(db, {
-    actorId: user.id, actorRole: 'school_admin', action: 'account_reactivated',
-    entity: row.role === 'student' ? 'students' : 'staff', entityId: id,
-    before: { active: 0 }, after: { active: 1 },
+    actorId: user.id,
+    actorRole: 'school_admin',
+    action: 'account_reactivated',
+    entity: row.role === 'student' ? 'students' : 'staff',
+    entityId: id,
+    before: { active: 0 },
+    after: { active: 1 },
   });
 
   return c.json({ message: 'Account reactivated' });
@@ -192,8 +259,11 @@ app.post('/students/:id/reset-pin', authMiddleware, schoolAdminMiddleware, async
   await recordSuccess(db, id);
 
   await logAction(db, {
-    actorId: user.id, actorRole: 'school_admin', action: 'pin_reset',
-    entity: 'students', entityId: id,
+    actorId: user.id,
+    actorRole: 'school_admin',
+    action: 'pin_reset',
+    entity: 'students',
+    entityId: id,
   });
 
   return c.json({ message: 'PIN reset', pin: String(pin) });
@@ -202,19 +272,29 @@ app.post('/students/:id/reset-pin', authMiddleware, schoolAdminMiddleware, async
 // GET /admin/analytics/overview?month=YYYY-MM — school-wide purchase analytics
 app.get('/analytics/overview', authMiddleware, schoolAdminMiddleware, async (c) => {
   const db = c.get('db');
+  const schoolId = getSchoolId(c);
   const month = MONTH_RE.test(c.req.query('month') || '') ? c.req.query('month') : currentMonth();
   const [year, mon] = month.split('-').map(Number);
   const start = new Date(Date.UTC(year, mon - 1, 1)).toISOString();
-  const end   = new Date(Date.UTC(year, mon, 1)).toISOString();
+  const end = new Date(Date.UTC(year, mon, 1)).toISOString();
 
-  const rows = await db.prepare(`
+  const params = [start, end];
+  const schoolFilter = schoolId ? 'AND s.school_id = ?' : '';
+  if (schoolId) params.push(schoolId);
+
+  const rows = await db
+    .prepare(
+      `
     SELECT t.amount, t.created_at::date::text AS day, s.id AS student_id, s.name AS student_name, s.class,
            m.category AS category
     FROM transactions t
     JOIN students s ON s.id = t.student_id
     LEFT JOIN menu_items m ON m.id = t.item_id
     WHERE t.type = 'debit' AND t.created_at >= ? AND t.created_at < ?
-  `).all(start, end);
+    ${schoolFilter}
+  `
+    )
+    .all(...params);
 
   let totalRevenue = 0;
   const byClass = {};
@@ -249,35 +329,72 @@ app.get('/analytics/overview', authMiddleware, schoolAdminMiddleware, async (c) 
   return c.json({
     month,
     totals: { revenue: round2(totalRevenue), transactionCount: rows.length },
-    byClass: Object.values(byClass).map((v) => ({ ...v, total: round2(v.total) })).sort(sortByTotalDesc),
-    byCategory: Object.values(byCategory).map((v) => ({ ...v, total: round2(v.total) })).sort(sortByTotalDesc),
-    byDay: Object.values(byDay).map((v) => ({ ...v, total: round2(v.total) })).sort((a, b) => a.day.localeCompare(b.day)),
-    topSpenders: Object.values(bySpender).map((v) => ({ ...v, total: round2(v.total) })).sort(sortByTotalDesc).slice(0, 10),
+    byClass: Object.values(byClass)
+      .map((v) => ({ ...v, total: round2(v.total) }))
+      .sort(sortByTotalDesc),
+    byCategory: Object.values(byCategory)
+      .map((v) => ({ ...v, total: round2(v.total) }))
+      .sort(sortByTotalDesc),
+    byDay: Object.values(byDay)
+      .map((v) => ({ ...v, total: round2(v.total) }))
+      .sort((a, b) => a.day.localeCompare(b.day)),
+    topSpenders: Object.values(bySpender)
+      .map((v) => ({ ...v, total: round2(v.total) }))
+      .sort(sortByTotalDesc)
+      .slice(0, 10),
   });
 });
 
 // GET /admin/dashboard — school-wide summary stats
 app.get('/dashboard', authMiddleware, schoolAdminMiddleware, async (c) => {
   const db = c.get('db');
-  const wallet = await db.prepare(`
+  const schoolId = getSchoolId(c);
+
+  const wallet = await db
+    .prepare(
+      `
     SELECT COALESCE(SUM(balance), 0) AS total_balance, COALESCE(SUM(emergency_balance), 0) AS total_emergency
     FROM students WHERE role = 'student' AND active = 1
-  `).get();
+    ${schoolId ? 'AND school_id = ?' : ''}
+  `
+    )
+    .get(...(schoolId ? [schoolId] : []));
 
-  const todayTxns = await db.prepare(`
+  const todayTxns = await db
+    .prepare(
+      `
     SELECT COUNT(*)::int AS count, COALESCE(SUM(amount), 0) AS amount
-    FROM transactions WHERE type = 'debit' AND created_at::date = CURRENT_DATE
-  `).get();
+    FROM transactions t
+    JOIN students s ON s.id = t.student_id
+    WHERE t.type = 'debit' AND t.created_at::date = CURRENT_DATE
+    ${schoolId ? 'AND s.school_id = ?' : ''}
+  `
+    )
+    .get(...(schoolId ? [schoolId] : []));
 
-  const cards = await db.prepare(`
-    SELECT COUNT(*) FILTER (WHERE active = 1)::int AS active_count,
-           COUNT(*) FILTER (WHERE active = 0)::int AS inactive_count
-    FROM cards
-  `).get();
+  const cards = await db
+    .prepare(
+      `
+    SELECT COUNT(*) FILTER (WHERE c.active = 1)::int AS active_count,
+           COUNT(*) FILTER (WHERE c.active = 0)::int AS inactive_count
+    FROM cards c
+    JOIN students s ON s.id = c.student_id
+    ${schoolId ? 'WHERE s.school_id = ?' : ''}
+  `
+    )
+    .get(...(schoolId ? [schoolId] : []));
 
-  const pendingApprovals = await db.prepare(
-    "SELECT COUNT(*)::int AS count FROM pending_purchases WHERE status = 'pending'"
-  ).get();
+  const pendingApprovals = await db
+    .prepare(
+      `
+    SELECT COUNT(*)::int AS count
+    FROM pending_purchases pp
+    JOIN students s ON s.id = pp.student_id
+    WHERE pp.status = 'pending'
+    ${schoolId ? 'AND s.school_id = ?' : ''}
+  `
+    )
+    .get(...(schoolId ? [schoolId] : []));
 
   return c.json({
     totalWalletBalance: Number(wallet.total_balance),
@@ -293,7 +410,17 @@ app.get('/dashboard', authMiddleware, schoolAdminMiddleware, async (c) => {
 // POST /admin/students — single-student add (bulk import handles the roster case)
 app.post('/students', authMiddleware, schoolAdminMiddleware, async (c) => {
   const db = c.get('db');
-  const { name, email, class: cls, pin, balance, dailyLimitAmount, dailyLimitCount, allergies, phone } = await c.req.json();
+  const {
+    name,
+    email,
+    class: cls,
+    pin,
+    balance,
+    dailyLimitAmount,
+    dailyLimitCount,
+    allergies,
+    phone,
+  } = await c.req.json();
 
   try {
     if (!name || !email || !cls || !pin) throw new HttpError(400, 'name, email, class and pin are required');
@@ -303,15 +430,25 @@ app.post('/students', authMiddleware, schoolAdminMiddleware, async (c) => {
     if (bal === null) throw new HttpError(400, 'Invalid balance');
     await assertEmailFree(db, email);
 
-    const id      = 'stu-' + uuidv4().slice(0, 8);
+    const id = 'stu-' + uuidv4().slice(0, 8);
     const pinHash = bcrypt.hashSync(String(pin), 10);
-    const dailyAmt = dailyLimitAmount === undefined || dailyLimitAmount === null || dailyLimitAmount === '' ? null : Number(dailyLimitAmount);
-    const dailyCnt = dailyLimitCount === undefined || dailyLimitCount === null || dailyLimitCount === '' ? null : Number(dailyLimitCount);
+    const dailyAmt =
+      dailyLimitAmount === undefined || dailyLimitAmount === null || dailyLimitAmount === ''
+        ? null
+        : Number(dailyLimitAmount);
+    const dailyCnt =
+      dailyLimitCount === undefined || dailyLimitCount === null || dailyLimitCount === ''
+        ? null
+        : Number(dailyLimitCount);
 
-    await db.prepare(`
+    await db
+      .prepare(
+        `
       INSERT INTO students (id, name, email, class, balance, pin_hash, role, daily_limit_amount, daily_limit_count, allergies, phone)
       VALUES (?, ?, ?, ?, ?, ?, 'student', ?, ?, ?, ?)
-    `).run(id, name, email, cls, bal, pinHash, dailyAmt, dailyCnt, allergies || null, phone || null);
+    `
+      )
+      .run(id, name, email, cls, bal, pinHash, dailyAmt, dailyCnt, allergies || null, phone || null);
 
     return c.json({ id, name, email, class: cls, balance: bal }, 201);
   } catch (err) {
@@ -326,17 +463,17 @@ app.patch('/students/:id', authMiddleware, schoolAdminMiddleware, async (c) => {
   const user = c.get('user');
   const id = c.req.param('id');
   const { class: cls, dailyLimitAmount, dailyLimitCount, allergies, phone } = await c.req.json();
-  const before = await db.prepare(
-    'SELECT class, daily_limit_amount, daily_limit_count, allergies, phone FROM students WHERE id = ?'
-  ).get(id);
+  const before = await db
+    .prepare('SELECT class, daily_limit_amount, daily_limit_count, allergies, phone FROM students WHERE id = ?')
+    .get(id);
   if (!before) return c.json({ error: 'Student not found' }, 404);
 
-  const toNullableNumber = (v) => (v === undefined ? undefined : (v === null || v === '' ? null : Number(v)));
-  const toNullableString = (v) => (v === undefined ? undefined : (v === null ? null : String(v).trim() || null));
-  const newAmount    = toNullableNumber(dailyLimitAmount);
-  const newCount     = toNullableNumber(dailyLimitCount);
+  const toNullableNumber = (v) => (v === undefined ? undefined : v === null || v === '' ? null : Number(v));
+  const toNullableString = (v) => (v === undefined ? undefined : v === null ? null : String(v).trim() || null);
+  const newAmount = toNullableNumber(dailyLimitAmount);
+  const newCount = toNullableNumber(dailyLimitCount);
   const newAllergies = toNullableString(allergies);
-  const newPhone     = toNullableString(phone);
+  const newPhone = toNullableString(phone);
 
   const after = {
     class: cls || before.class,
@@ -346,14 +483,23 @@ app.patch('/students/:id', authMiddleware, schoolAdminMiddleware, async (c) => {
     phone: newPhone !== undefined ? newPhone : before.phone,
   };
 
-  await db.prepare(`
+  await db
+    .prepare(
+      `
     UPDATE students SET class = ?, daily_limit_amount = ?, daily_limit_count = ?, allergies = ?, phone = ?
     WHERE id = ?
-  `).run(after.class, after.daily_limit_amount, after.daily_limit_count, after.allergies, after.phone, id);
+  `
+    )
+    .run(after.class, after.daily_limit_amount, after.daily_limit_count, after.allergies, after.phone, id);
 
   await logAction(db, {
-    actorId: user.id, actorRole: 'school_admin', action: 'student_updated',
-    entity: 'students', entityId: id, before, after,
+    actorId: user.id,
+    actorRole: 'school_admin',
+    action: 'student_updated',
+    entity: 'students',
+    entityId: id,
+    before,
+    after,
   });
 
   return c.json({ message: 'Student updated' });
@@ -362,7 +508,10 @@ app.patch('/students/:id', authMiddleware, schoolAdminMiddleware, async (c) => {
 // GET /admin/shops — list all shops
 app.get('/shops', authMiddleware, schoolAdminMiddleware, async (c) => {
   const db = c.get('db');
-  const shops = await db.prepare('SELECT * FROM shops ORDER BY name').all();
+  const schoolId = getSchoolId(c);
+  const shops = await db
+    .prepare(`SELECT * FROM shops ${schoolId ? 'WHERE school_id = ?' : ''} ORDER BY name`)
+    .all(...(schoolId ? [schoolId] : []));
   return c.json(shops);
 });
 
@@ -370,15 +519,22 @@ app.get('/shops', authMiddleware, schoolAdminMiddleware, async (c) => {
 app.post('/shops', authMiddleware, schoolAdminMiddleware, async (c) => {
   const db = c.get('db');
   const user = c.get('user');
+  const schoolId = getSchoolId(c);
   const { name, location } = await c.req.json();
   if (!name) return c.json({ error: 'name is required' }, 400);
 
   const id = 'shop-' + uuidv4().slice(0, 8);
-  await db.prepare('INSERT INTO shops (id, name, location) VALUES (?, ?, ?)').run(id, name, location || null);
+  await db
+    .prepare('INSERT INTO shops (id, name, location, school_id) VALUES (?, ?, ?, ?)')
+    .run(id, name, location || null, schoolId);
 
   await logAction(db, {
-    actorId: user.id, actorRole: 'school_admin', action: 'shop_created',
-    entity: 'shops', entityId: id, after: { name, location: location || null },
+    actorId: user.id,
+    actorRole: 'school_admin',
+    action: 'shop_created',
+    entity: 'shops',
+    entityId: id,
+    after: { name, location: location || null },
   });
 
   return c.json({ id, name, location: location || null, active: 1 }, 201);
@@ -395,11 +551,12 @@ app.patch('/shops/:id', authMiddleware, schoolAdminMiddleware, async (c) => {
 
   const after = {
     name: name || before.name,
-    location: location !== undefined ? (location || null) : before.location,
-    active: active === undefined ? before.active : (active ? 1 : 0),
+    location: location !== undefined ? location || null : before.location,
+    active: active === undefined ? before.active : active ? 1 : 0,
   };
 
-  await db.prepare('UPDATE shops SET name = ?, location = ?, active = ? WHERE id = ?')
+  await db
+    .prepare('UPDATE shops SET name = ?, location = ?, active = ? WHERE id = ?')
     .run(after.name, after.location, after.active, id);
 
   // Keep merchant_name in sync on any cashier accounts attached to this shop —
@@ -409,8 +566,13 @@ app.patch('/shops/:id', authMiddleware, schoolAdminMiddleware, async (c) => {
   }
 
   await logAction(db, {
-    actorId: user.id, actorRole: 'school_admin', action: 'shop_updated',
-    entity: 'shops', entityId: id, before, after,
+    actorId: user.id,
+    actorRole: 'school_admin',
+    action: 'shop_updated',
+    entity: 'shops',
+    entityId: id,
+    before,
+    after,
   });
 
   return c.json({ message: 'Shop updated' });
@@ -422,7 +584,7 @@ app.patch('/shop-owners/:id', authMiddleware, schoolAdminMiddleware, async (c) =
   const user = c.get('user');
   const id = c.req.param('id');
   const { shopId, phone } = await c.req.json();
-  const before = await db.prepare("SELECT * FROM students WHERE id = ? AND role = 'shop_owner'").get(id);
+  const before = await db.prepare("SELECT * FROM students WHERE id = ? AND (role = 'shop_owner' OR role = 'cashier')").get(id);
   if (!before) return c.json({ error: 'Cashier not found' }, 404);
 
   let merchantName = before.merchant_name;
@@ -433,14 +595,18 @@ app.patch('/shop-owners/:id', authMiddleware, schoolAdminMiddleware, async (c) =
     newShopId = shop.id;
     merchantName = shop.name;
   }
-  const newPhone = phone !== undefined ? (phone || null) : before.phone;
+  const newPhone = phone !== undefined ? phone || null : before.phone;
 
-  await db.prepare('UPDATE students SET shop_id = ?, merchant_name = ?, phone = ? WHERE id = ?')
+  await db
+    .prepare('UPDATE students SET shop_id = ?, merchant_name = ?, phone = ? WHERE id = ?')
     .run(newShopId, merchantName, newPhone, id);
 
   await logAction(db, {
-    actorId: user.id, actorRole: 'school_admin', action: 'cashier_updated',
-    entity: 'students', entityId: id,
+    actorId: user.id,
+    actorRole: 'school_admin',
+    action: 'cashier_updated',
+    entity: 'students',
+    entityId: id,
     before: { shop_id: before.shop_id, merchant_name: before.merchant_name, phone: before.phone },
     after: { shop_id: newShopId, merchant_name: merchantName, phone: newPhone },
   });
@@ -451,10 +617,18 @@ app.patch('/shop-owners/:id', authMiddleware, schoolAdminMiddleware, async (c) =
 // GET /admin/approvals?status=pending|approved|rejected — school-wide parent-approval holds
 app.get('/approvals', authMiddleware, schoolAdminMiddleware, async (c) => {
   const db = c.get('db');
+  const schoolId = getSchoolId(c);
   const status = c.req.query('status');
   const filterStatus = PENDING_APPROVAL_STATUSES.includes(status) ? status : null;
 
-  const rows = await db.prepare(`
+  const params = [];
+  const schoolFilter = schoolId ? 'AND s.school_id = ?' : '';
+  if (schoolId) params.push(schoolId);
+  if (filterStatus) params.push(filterStatus);
+
+  const rows = await db
+    .prepare(
+      `
     SELECT p.id, p.student_id, s.name AS student_name, s.class, p.amount, p.description, p.status,
            p.created_at::text AS created_at, p.expires_at::text AS expires_at, p.resolved_at::text AS resolved_at,
            sh.name AS shop_name
@@ -462,21 +636,26 @@ app.get('/approvals', authMiddleware, schoolAdminMiddleware, async (c) => {
     JOIN students s ON s.id = p.student_id
     LEFT JOIN students owner ON owner.id = p.shop_owner_id
     LEFT JOIN shops sh ON sh.id = owner.shop_id
-    ${filterStatus ? 'WHERE p.status = ?' : ''}
+    WHERE 1=1 ${schoolFilter} ${filterStatus ? 'AND p.status = ?' : ''}
     ORDER BY p.created_at DESC
     LIMIT 200
-  `).all(...(filterStatus ? [filterStatus] : []));
+  `
+    )
+    .all(...params);
 
   const now = Date.now();
-  return c.json(rows.map((r) => ({
-    ...r,
-    timeInQueueMs: (r.resolved_at ? new Date(r.resolved_at).getTime() : now) - new Date(r.created_at).getTime(),
-  })));
+  return c.json(
+    rows.map((r) => ({
+      ...r,
+      timeInQueueMs: (r.resolved_at ? new Date(r.resolved_at).getTime() : now) - new Date(r.created_at).getTime(),
+    }))
+  );
 });
 
 // GET /admin/reports/spending?from=&to=&shopId=&grade=&format=csv — date-range spending report
 app.get('/reports/spending', authMiddleware, schoolAdminMiddleware, async (c) => {
   const db = c.get('db');
+  const schoolId = getSchoolId(c);
   const from = c.req.query('from');
   const to = c.req.query('to');
   const shopId = c.req.query('shopId');
@@ -485,9 +664,22 @@ app.get('/reports/spending', authMiddleware, schoolAdminMiddleware, async (c) =>
 
   const conditions = ["t.type = 'debit'"];
   const params = [];
-  if (from) { conditions.push('t.created_at >= ?'); params.push(from); }
-  if (to) { conditions.push('t.created_at < ?'); params.push(to); }
-  if (grade) { conditions.push('s.class LIKE ?'); params.push(`${grade}-%`); }
+  if (schoolId) {
+    conditions.push('s.school_id = ?');
+    params.push(schoolId);
+  }
+  if (from) {
+    conditions.push('t.created_at >= ?');
+    params.push(from);
+  }
+  if (to) {
+    conditions.push('t.created_at < ?');
+    params.push(to);
+  }
+  if (grade) {
+    conditions.push('s.class LIKE ?');
+    params.push(`${grade}-%`);
+  }
   if (shopId) {
     const shop = await db.prepare('SELECT name FROM shops WHERE id = ?').get(shopId);
     if (!shop) return c.json({ error: 'Shop not found' }, 404);
@@ -495,19 +687,24 @@ app.get('/reports/spending', authMiddleware, schoolAdminMiddleware, async (c) =>
     params.push(shop.name);
   }
 
-  const rows = await db.prepare(`
+  const rows = await db
+    .prepare(
+      `
     SELECT t.created_at::text AS created_at, t.amount, t.merchant, s.name AS student_name, s.class
     FROM transactions t JOIN students s ON s.id = t.student_id
     WHERE ${conditions.join(' AND ')}
     ORDER BY t.created_at DESC
     LIMIT 5000
-  `).all(...params);
+  `
+    )
+    .all(...params);
 
   if (format === 'csv') {
     const header = 'Date,Student,Class,Shop,Amount';
-    const csv = [header, ...rows.map((r) =>
-      [r.created_at, r.student_name, r.class, r.merchant, r.amount].map(csvEscape).join(',')
-    )].join('\n');
+    const csv = [
+      header,
+      ...rows.map((r) => [r.created_at, r.student_name, r.class, r.merchant, r.amount].map(csvEscape).join(',')),
+    ].join('\n');
     return c.body(csv, 200, {
       'Content-Type': 'text/csv',
       'Content-Disposition': 'attachment; filename="spending-report.csv"',
@@ -521,24 +718,40 @@ app.get('/reports/spending', authMiddleware, schoolAdminMiddleware, async (c) =>
 // GET /admin/reports/emergency-fund — students/families drawing on the emergency fund
 app.get('/reports/emergency-fund', authMiddleware, schoolAdminMiddleware, async (c) => {
   const db = c.get('db');
-  const rows = await db.prepare(`
+  const schoolId = getSchoolId(c);
+
+  const params = [];
+  const schoolFilter = schoolId ? 'AND s.school_id = ?' : '';
+  if (schoolId) params.push(schoolId);
+
+  const rows = await db
+    .prepare(
+      `
     SELECT s.id AS student_id, s.name AS student_name, s.class, s.email,
            COUNT(*)::int AS draw_count, COALESCE(SUM(t.emergency_amount), 0) AS total_drawn
     FROM transactions t
     JOIN students s ON s.id = t.student_id
-    WHERE t.type = 'debit' AND t.emergency_amount > 0
+    WHERE t.type = 'debit' AND t.emergency_amount > 0 ${schoolFilter}
     GROUP BY s.id, s.name, s.class, s.email
     ORDER BY total_drawn DESC
-  `).all();
+  `
+    )
+    .all(...params);
 
-  const withParents = await Promise.all(rows.map(async (r) => {
-    const parent = await getParentFor(db, { name: r.student_name, email: r.email });
-    return {
-      studentId: r.student_id, studentName: r.student_name, class: r.class,
-      drawCount: r.draw_count, totalDrawn: Number(r.total_drawn),
-      parentName: parent?.name || null, parentPhone: parent?.phone || null,
-    };
-  }));
+  const withParents = await Promise.all(
+    rows.map(async (r) => {
+      const parent = await getParentFor(db, { name: r.student_name, email: r.email });
+      return {
+        studentId: r.student_id,
+        studentName: r.student_name,
+        class: r.class,
+        drawCount: r.draw_count,
+        totalDrawn: Number(r.total_drawn),
+        parentName: parent?.name || null,
+        parentPhone: parent?.phone || null,
+      };
+    })
+  );
 
   return c.json(withParents);
 });
@@ -546,18 +759,27 @@ app.get('/reports/emergency-fund', authMiddleware, schoolAdminMiddleware, async 
 // GET /admin/refunds?status=refund_pending|refunded — refund queue
 app.get('/refunds', authMiddleware, schoolAdminMiddleware, async (c) => {
   const db = c.get('db');
+  const schoolId = getSchoolId(c);
   const status = REFUND_QUEUE_STATUSES.includes(c.req.query('status')) ? c.req.query('status') : 'refund_pending';
 
-  const rows = await db.prepare(`
+  const params = [status];
+  const schoolFilter = schoolId ? 'AND sh.school_id = ?' : '';
+  if (schoolId) params.push(schoolId);
+
+  const rows = await db
+    .prepare(
+      `
     SELECT o.id, o.student_id, s.name AS student_name, s.class, sh.id AS shop_id, sh.name AS shop_name,
            o.items, o.amount, o.status, o.refund_reason, o.created_at::text AS created_at, o.refunded_at::text AS refunded_at
     FROM orders o
     JOIN students s ON s.id = o.student_id
     JOIN shops sh ON sh.id = o.shop_id
-    WHERE o.status = ?
+    WHERE o.status = ? ${schoolFilter}
     ORDER BY o.created_at DESC
     LIMIT 200
-  `).all(status);
+  `
+    )
+    .all(...params);
 
   return c.json(rows);
 });
@@ -579,34 +801,50 @@ app.patch('/refunds/:id/approve', authMiddleware, schoolAdminMiddleware, async (
 
       // Split the refund back across main balance / emergency fund in the
       // same proportion the original sale drew from each.
-      const emergencyUsed = await trx.prepare(
-        'SELECT COALESCE(SUM(emergency_amount), 0) AS total FROM transactions WHERE order_id = ?'
-      ).get(order.id);
+      const emergencyUsed = await trx
+        .prepare('SELECT COALESCE(SUM(emergency_amount), 0) AS total FROM transactions WHERE order_id = ?')
+        .get(order.id);
       const emergencyPortion = Math.min(Number(emergencyUsed.total), order.amount);
       const mainPortion = order.amount - emergencyPortion;
 
       const newBalance = student.balance + mainPortion;
       const newEmergencyBalance = (student.emergency_balance || 0) + emergencyPortion;
-      await trx.prepare('UPDATE students SET balance = ?, emergency_balance = ? WHERE id = ?')
+      await trx
+        .prepare('UPDATE students SET balance = ?, emergency_balance = ? WHERE id = ?')
         .run(newBalance, newEmergencyBalance, student.id);
 
-      await trx.prepare(`
+      await trx
+        .prepare(
+          `
         INSERT INTO transactions (id, student_id, type, amount, description, merchant, balance_after, emergency_amount, order_id)
         VALUES (?, ?, 'credit', ?, ?, 'Refund', ?, ?, ?)
-      `).run(
-        uuidv4(), student.id, order.amount, `Refund: ${order.refund_reason || 'Cashier requested'}`,
-        newBalance, emergencyPortion, order.id
-      );
+      `
+        )
+        .run(
+          uuidv4(),
+          student.id,
+          order.amount,
+          `Refund: ${order.refund_reason || 'Cashier requested'}`,
+          newBalance,
+          emergencyPortion,
+          order.id
+        );
 
-      const updated = await trx.prepare(
-        "UPDATE orders SET status = 'refunded', refunded_at = NOW(), approved_by = ? WHERE id = ? AND status = 'refund_pending' RETURNING id"
-      ).get(user.id, order.id);
+      const updated = await trx
+        .prepare(
+          "UPDATE orders SET status = 'refunded', refunded_at = NOW(), approved_by = ? WHERE id = ? AND status = 'refund_pending' RETURNING id"
+        )
+        .get(user.id, order.id);
       if (!updated) throw new HttpError(409, 'This refund was already resolved');
 
       await logAction(trx, {
-        actorId: user.id, actorRole: 'school_admin', action: 'refund_approved',
-        entity: 'orders', entityId: order.id,
-        before: { status: 'refund_pending' }, after: { status: 'refunded', amount: order.amount },
+        actorId: user.id,
+        actorRole: 'school_admin',
+        action: 'refund_approved',
+        entity: 'orders',
+        entityId: order.id,
+        before: { status: 'refund_pending' },
+        after: { status: 'refunded', amount: order.amount },
       });
 
       return { message: 'Refund approved', newBalance, newEmergencyBalance };
@@ -630,15 +868,19 @@ app.patch('/refunds/:id/reject', authMiddleware, schoolAdminMiddleware, async (c
     return c.json({ error: `Order is not awaiting refund approval (status: ${order.status})` }, 409);
   }
 
-  const updated = await db.prepare(
-    "UPDATE orders SET status = 'completed' WHERE id = ? AND status = 'refund_pending' RETURNING id"
-  ).get(id);
+  const updated = await db
+    .prepare("UPDATE orders SET status = 'completed' WHERE id = ? AND status = 'refund_pending' RETURNING id")
+    .get(id);
   if (!updated) return c.json({ error: 'This refund was already resolved' }, 409);
 
   await logAction(db, {
-    actorId: user.id, actorRole: 'school_admin', action: 'refund_rejected',
-    entity: 'orders', entityId: order.id,
-    before: { status: 'refund_pending' }, after: { status: 'completed', denialReason: reason || null },
+    actorId: user.id,
+    actorRole: 'school_admin',
+    action: 'refund_rejected',
+    entity: 'orders',
+    entityId: order.id,
+    before: { status: 'refund_pending' },
+    after: { status: 'completed', denialReason: reason || null },
   });
 
   return c.json({ message: 'Refund request denied — sale stands' });

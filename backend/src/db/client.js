@@ -15,7 +15,9 @@ function makePrepare(queryable) {
     return {
       get: async (...params) => (await queryable.query(pgSql, params)).rows[0],
       all: async (...params) => (await queryable.query(pgSql, params)).rows,
-      run: async (...params) => { await queryable.query(pgSql, params); },
+      run: async (...params) => {
+        await queryable.query(pgSql, params);
+      },
     };
   };
 }

@@ -285,10 +285,144 @@ async function migrate() {
     );
   `);
 
+  // ── SaaS platform tables ────────────────────────────────────────────────
+
+  // Schools — the top-level tenant entity. Every student, shop, and
+  // school_admin belongs to exactly one school via school_id FK.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS schools (
+      id          TEXT PRIMARY KEY,
+      name        TEXT NOT NULL,
+      contact_email TEXT,
+      contact_phone TEXT,
+      address     TEXT,
+      logo_url    TEXT,
+      active      INTEGER NOT NULL DEFAULT 1,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  // Subscription plans — defined by the platform (StudPay super-admin).
+  // Free tier exists so new schools can trial without payment.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS plans (
+      id              TEXT PRIMARY KEY,
+      name            TEXT NOT NULL,
+      monthly_price   REAL NOT NULL DEFAULT 0,
+      student_limit   INTEGER,
+      shop_limit      INTEGER,
+      features        JSONB NOT NULL DEFAULT '[]',
+      active          INTEGER NOT NULL DEFAULT 1,
+      created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  // Subscriptions — one active subscription per school, linking to a plan.
+  // status: 'trialing', 'active', 'past_due', 'cancelled', 'expired'
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS subscriptions (
+      id              TEXT PRIMARY KEY,
+      school_id       TEXT NOT NULL REFERENCES schools(id),
+      plan_id         TEXT NOT NULL REFERENCES plans(id),
+      status          TEXT NOT NULL DEFAULT 'trialing'
+                        CONSTRAINT subscriptions_status_check
+                        CHECK (status IN ('trialing','active','past_due','cancelled','expired')),
+      trial_ends_at   TIMESTAMPTZ,
+      billing_cycle   TEXT NOT NULL DEFAULT 'monthly'
+                        CONSTRAINT subscriptions_billing_cycle_check
+                        CHECK (billing_cycle IN ('monthly','quarterly','yearly')),
+      current_period_start TIMESTAMPTZ,
+      current_period_end   TIMESTAMPTZ,
+      cancelled_at    TIMESTAMPTZ,
+      created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_subscriptions_school ON subscriptions(school_id)');
+
+  // Link existing school_id columns to the new schools table (add FK if missing)
+  const schoolsExist = await pool.query("SELECT 1 FROM information_schema.tables WHERE table_name = 'schools'");
+  if (schoolsExist.rows.length) {
+    // students.school_id — add FK if not already present
+    const stuFk = await pool.query(
+      "SELECT conname FROM pg_constraint WHERE conrelid = 'students'::regclass AND conname = 'students_school_id_fkey'"
+    );
+    if (!stuFk.rows.length) {
+      await pool.query('ALTER TABLE students ADD CONSTRAINT students_school_id_fkey FOREIGN KEY (school_id) REFERENCES schools(id) ON DELETE SET NULL');
+    }
+    // shops.school_id — add FK if not already present
+    const shopFk = await pool.query(
+      "SELECT conname FROM pg_constraint WHERE conrelid = 'shops'::regclass AND conname = 'shops_school_id_fkey'"
+    );
+    if (!shopFk.rows.length) {
+      await pool.query('ALTER TABLE shops ADD CONSTRAINT shops_school_id_fkey FOREIGN KEY (school_id) REFERENCES schools(id) ON DELETE SET NULL');
+    }
+  }
+
+  // Performance indexes
+  // Surname column for efficient parent-child lookup by surname + email domain
+  const surnameCol = await pool.query(
+    "SELECT column_name FROM information_schema.columns WHERE table_name = 'students' AND column_name = 'surname'"
+  );
+  if (!surnameCol.rows.length) {
+    await pool.query("ALTER TABLE students ADD COLUMN surname TEXT");
+    // Backfill existing rows: extract last word from name, lowercased
+    await pool.query(`
+      UPDATE students SET surname = lower(trim(regexp_replace(name, '^.*\\s+', '', 'e')))
+      WHERE surname IS NULL
+    `);
+  }
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_students_surname_domain ON students (surname, lower(split_part(email, \'@\', 2))) WHERE role IN (\'student\', \'parent\')');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_students_role_active ON students (role, active)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_students_school_id ON students (school_id) WHERE school_id IS NOT NULL');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_shops_school_id ON shops (school_id) WHERE school_id IS NOT NULL');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_transactions_student_type ON transactions (student_id, type)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_cards_uid_active ON cards (uid, active)');
+
+  // Trigger to auto-populate surname on insert/update
+  await pool.query(`
+    CREATE OR REPLACE FUNCTION update_student_surname()
+    RETURNS TRIGGER AS $$
+    BEGIN
+      NEW.surname := lower(trim(regexp_replace(NEW.name, '^.*\\s+', '', 'e')));
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql;
+  `);
+  await pool.query(`
+    DROP TRIGGER IF EXISTS trg_students_surname ON students;
+    CREATE TRIGGER trg_students_surname
+    BEFORE INSERT OR UPDATE OF name ON students
+    FOR EACH ROW EXECUTE FUNCTION update_student_surname();
+  `);
+
   // Seed demo data only if empty, and never in production (predictable demo PINs
   // must not be auto-provisioned on a real deploy)
   const existing = await db.prepare('SELECT id FROM students WHERE email = ?').get('admin@studpay.school');
   if (!existing && process.env.NODE_ENV !== 'production') {
+    // Seed platform plans
+    await db.prepare(`
+      INSERT INTO plans (id, name, monthly_price, student_limit, shop_limit, features)
+      VALUES
+        ('plan-free',   'Free Trial',  0,    50,  2, '["basic_dashboard","50_students","2_shops"]'),
+        ('plan-basic',  'Basic',       2500, 200, 5, '["basic_dashboard","200_students","5_shops","reports"]'),
+        ('plan-pro',    'Pro',         5000, 1000, 15, '["basic_dashboard","1000_students","15_shops","reports","analytics","bulk_import"]'),
+        ('plan-enterprise', 'Enterprise', 15000, NULL, NULL, '["all_features","priority_support","custom_integrations"]')
+      ON CONFLICT (id) DO NOTHING
+    `).run();
+
+    // Seed demo school
+    await db.prepare(`
+      INSERT INTO schools (id, name, contact_email, contact_phone, address)
+      VALUES ('school-demo-001', 'Demo Public School', 'admin@demo-school.edu', '+91-9876543210', '123 Education Lane, Mumbai')
+      ON CONFLICT (id) DO NOTHING
+    `).run();
+
+    // Seed subscription for demo school
+    await db.prepare(`
+      INSERT INTO subscriptions (id, school_id, plan_id, status, trial_ends_at, current_period_start, current_period_end)
+      VALUES ('sub-demo-001', 'school-demo-001', 'plan-pro', 'active', NULL, NOW(), NOW() + INTERVAL '30 days')
+      ON CONFLICT (id) DO NOTHING
+    `).run();
     const ownerPin   = bcrypt.hashSync('1234', 10);
     const owner2Pin  = bcrypt.hashSync('1111', 10);
     const owner3Pin  = bcrypt.hashSync('2222', 10);
@@ -299,16 +433,23 @@ async function migrate() {
     const studentPin = bcrypt.hashSync('5678', 10);
 
     const insertUser = db.prepare(
-      'INSERT INTO students (id,name,email,class,balance,pin_hash,role,merchant_name) VALUES (?,?,?,?,?,?,?,?)'
+      'INSERT INTO students (id,name,email,class,balance,pin_hash,role,merchant_name,school_id) VALUES (?,?,?,?,?,?,?,?,?)'
     );
 
+    // School ID for demo data
+    const demoSchoolId = 'school-demo-001';
+
     // Shop owners (billing app logins)
-    await insertUser.run('owner-001', 'Shop Owner',        'admin@studpay.school',      'Staff', 0, ownerPin,  'shop_owner', 'School Canteen');
-    await insertUser.run('owner-002', 'Book Store Owner',  'bookstore@studpay.school',  'Staff', 0, owner2Pin, 'shop_owner', 'School Book Store');
-    await insertUser.run('owner-003', 'Stationery Owner',  'stationery@studpay.school', 'Staff', 0, owner3Pin, 'shop_owner', 'Stationery Corner');
+    await insertUser.run('owner-001', 'Shop Owner',        'admin@studpay.school',      'Staff', 0, ownerPin,  'shop_owner', 'School Canteen', demoSchoolId);
+    await insertUser.run('owner-002', 'Book Store Owner',  'bookstore@studpay.school',  'Staff', 0, owner2Pin, 'shop_owner', 'School Book Store', demoSchoolId);
+    await insertUser.run('owner-003', 'Stationery Owner',  'stationery@studpay.school', 'Staff', 0, owner3Pin, 'shop_owner', 'Stationery Corner', demoSchoolId);
 
     // School admin (school-wide roster/analytics/staff-management login)
-    await insertUser.run('schooladmin-001', 'Principal', 'principal@studpay.school', 'Admin', 0, principalPin, 'school_admin', null);
+    await insertUser.run('schooladmin-001', 'Principal', 'principal@studpay.school', 'Admin', 0, principalPin, 'school_admin', null, demoSchoolId);
+
+    // Super admin (platform-level: manages all schools, subscriptions, billing)
+    const superAdminPin = bcrypt.hashSync('0000', 10);
+    await insertUser.run('superadmin-001', 'StudPay Platform Admin', 'superadmin@studpay.app', 'Platform', 0, superAdminPin, 'super_admin', null, null);
 
     // Demo menu items for the Canteen (owner-001) — seeded here, after shop
     // owners exist, since menu_items.shop_owner_id has a FK to students(id)
@@ -326,16 +467,16 @@ async function migrate() {
     console.log('✅ Menu items seeded');
 
     // Parents (frontend app logins) — linked to children by surname + email domain
-    await insertUser.run('parent-001', 'Lakshmi Menon', 'lakshmi.menon@student.school', 'Parent', 0, parentPin,  'parent', null);
-    await insertUser.run('parent-002', 'Suresh Nair',    'suresh.nair@student.school',  'Parent', 0, parent2Pin, 'parent', null);
-    await insertUser.run('parent-003', 'Deepa Sharma',   'deepa.sharma@student.school', 'Parent', 0, parent3Pin, 'parent', null);
+    await insertUser.run('parent-001', 'Lakshmi Menon', 'lakshmi.menon@student.school', 'Parent', 0, parentPin,  'parent', null, demoSchoolId);
+    await insertUser.run('parent-002', 'Suresh Nair',    'suresh.nair@student.school',  'Parent', 0, parent2Pin, 'parent', null, demoSchoolId);
+    await insertUser.run('parent-003', 'Deepa Sharma',   'deepa.sharma@student.school', 'Parent', 0, parent3Pin, 'parent', null, demoSchoolId);
 
     // Students
-    await insertUser.run('stu-001', 'Arjun Menon',  'arjun@student.school',       '10-A', 500, studentPin, 'student', null);
-    await insertUser.run('stu-002', 'Priya Nair',   'priya@student.school',      '9-B',  320, studentPin, 'student', null);
-    await insertUser.run('stu-003', 'Rahul Sharma', 'rahul@student.school',      '11-C', 90,  studentPin, 'student', null);
-    await insertUser.run('stu-004', 'Ananya Nair',  'ananya.nair@student.school', '8-A', 200, studentPin, 'student', null);
-    await insertUser.run('stu-005', 'Kiran Sharma', 'kiran.sharma@student.school', '7-B', 150, studentPin, 'student', null);
+    await insertUser.run('stu-001', 'Arjun Menon',  'arjun@student.school',       '10-A', 500, studentPin, 'student', null, demoSchoolId);
+    await insertUser.run('stu-002', 'Priya Nair',   'priya@student.school',      '9-B',  320, studentPin, 'student', null, demoSchoolId);
+    await insertUser.run('stu-003', 'Rahul Sharma', 'rahul@student.school',      '11-C', 90,  studentPin, 'student', null, demoSchoolId);
+    await insertUser.run('stu-004', 'Ananya Nair',  'ananya.nair@student.school', '8-A', 200, studentPin, 'student', null, demoSchoolId);
+    await insertUser.run('stu-005', 'Kiran Sharma', 'kiran.sharma@student.school', '7-B', 150, studentPin, 'student', null, demoSchoolId);
 
     const insertCard = db.prepare('INSERT INTO cards (id,uid,student_id) VALUES (?,?,?)');
     await insertCard.run('card-001', 'A1B2C3D4', 'stu-001');
@@ -362,6 +503,7 @@ async function migrate() {
     await txnStmt.run('txn-011', 'stu-005', 'debit',  40,  'Lunch Combo',       'School Canteen',    150, datetime(-3), 'item-008');
 
     console.log('✅ Database seeded');
+    console.log('   Super admin : superadmin@studpay.app (0000)');
     console.log('   School admin: principal@studpay.school (9999)');
     console.log('   Shop owners : admin@studpay.school (1234, School Canteen)');
     console.log('                 bookstore@studpay.school (1111, School Book Store)');

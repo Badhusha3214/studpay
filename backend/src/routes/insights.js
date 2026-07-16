@@ -35,18 +35,22 @@ app.get('/:studentId/monthly', authMiddleware, parentMiddleware, async (c) => {
   const month = MONTH_RE.test(c.req.query('month') || '') ? c.req.query('month') : currentMonth();
   const [year, mon] = month.split('-').map(Number);
   const start = new Date(Date.UTC(year, mon - 1, 1)).toISOString();
-  const end   = new Date(Date.UTC(year, mon, 1)).toISOString();
+  const end = new Date(Date.UTC(year, mon, 1)).toISOString();
 
   // EXTRACT(HOUR ...) is computed in Postgres (not JS Date) to avoid any
   // client/server timezone mismatch when interpreting the stored timestamp.
-  const rows = await db.prepare(`
+  const rows = await db
+    .prepare(
+      `
     SELECT t.id, t.amount, t.item_id, m.name AS item_name, m.category AS category,
            EXTRACT(HOUR FROM t.created_at)::int AS hour
     FROM transactions t
     LEFT JOIN menu_items m ON m.id = t.item_id
     WHERE t.student_id = ? AND t.type = 'debit'
       AND t.created_at >= ? AND t.created_at < ?
-  `).all(studentId, start, end);
+  `
+    )
+    .all(studentId, start, end);
 
   let totalSpend = 0;
   let earlyCount = 0;
@@ -75,8 +79,8 @@ app.get('/:studentId/monthly', authMiddleware, parentMiddleware, async (c) => {
 
   const transactionCount = rows.length;
   const pctOfSpend = (spend) => (totalSpend > 0 ? (spend / totalSpend) * 100 : 0);
-  const junkPct     = pctOfSpend(categoryAgg.junk?.spend || 0);
-  const healthyPct  = pctOfSpend(categoryAgg.healthy?.spend || 0);
+  const junkPct = pctOfSpend(categoryAgg.junk?.spend || 0);
+  const healthyPct = pctOfSpend(categoryAgg.healthy?.spend || 0);
   const beveragePct = pctOfSpend(categoryAgg.beverage?.spend || 0);
 
   const healthScore = transactionCount > 0 ? healthScoreFor(healthyPct, junkPct, beveragePct) : null;
@@ -90,8 +94,11 @@ app.get('/:studentId/monthly', authMiddleware, parentMiddleware, async (c) => {
 
   const topItems = Object.entries(itemAgg)
     .map(([itemId, v]) => ({
-      item_id: itemId, name: v.name, category: v.category,
-      count: v.count, spend: Number(v.spend.toFixed(2)),
+      item_id: itemId,
+      name: v.name,
+      category: v.category,
+      count: v.count,
+      spend: Number(v.spend.toFixed(2)),
     }))
     .sort((a, b) => b.count - a.count || b.spend - a.spend)
     .slice(0, 3);

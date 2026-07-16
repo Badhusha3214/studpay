@@ -17,11 +17,13 @@ export async function registerCard(db, uid, studentId) {
     // Reassign the previously-deactivated row to the new student instead of
     // inserting a duplicate (uid has a UNIQUE constraint).
     cardId = existing.id;
-    await db.prepare('UPDATE cards SET student_id = ?, active = 1, linked_at = NOW() WHERE id = ?')
+    await db
+      .prepare('UPDATE cards SET student_id = ?, active = 1, linked_at = NOW() WHERE id = ?')
       .run(studentId, cardId);
   } else {
     cardId = uuidv4();
-    await db.prepare('INSERT INTO cards (id, uid, student_id, active) VALUES (?, ?, ?, 1)')
+    await db
+      .prepare('INSERT INTO cards (id, uid, student_id, active) VALUES (?, ?, ?, 1)')
       .run(cardId, upperUid, studentId);
   }
 

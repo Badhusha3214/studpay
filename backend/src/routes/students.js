@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
-import { authMiddleware, shopOwnerMiddleware, staffMiddleware } from '../middleware/auth.js';
+import { authMiddleware, shopOwnerMiddleware, staffMiddleware, getSchoolId } from '../middleware/auth.js';
 import { logAction } from '../services/auditLog.js';
 
 const app = new Hono();
@@ -13,6 +13,7 @@ const STAFF_ROLES = ['shop_owner', 'school_admin'];
 // active-only, preserving the cashier dashboard's existing no-params call).
 app.get('/', authMiddleware, staffMiddleware, async (c) => {
   const db = c.get('db');
+  const schoolId = getSchoolId(c);
   const q = c.req.query('q');
   const cls = c.req.query('class');
   const active = c.req.query('active');
@@ -20,18 +21,32 @@ app.get('/', authMiddleware, staffMiddleware, async (c) => {
   const conditions = ["s.role = 'student'"];
   const params = [];
 
+  if (schoolId) {
+    conditions.push('s.school_id = ?');
+    params.push(schoolId);
+  }
   if (active !== 'all') conditions.push('s.active = 1');
-  if (cls) { conditions.push('s.class = ?'); params.push(cls); }
-  if (q) { conditions.push('(s.name ILIKE ? OR s.email ILIKE ?)'); params.push(`%${q}%`, `%${q}%`); }
+  if (cls) {
+    conditions.push('s.class = ?');
+    params.push(cls);
+  }
+  if (q) {
+    conditions.push('(s.name ILIKE ? OR s.email ILIKE ?)');
+    params.push(`%${q}%`, `%${q}%`);
+  }
 
-  const students = await db.prepare(`
+  const students = await db
+    .prepare(
+      `
     SELECT s.id, s.name, s.email, s.class, s.balance, s.role, s.active, s.created_at,
            c.uid AS card_uid, c.active AS card_active, c.id AS card_id
     FROM students s
     LEFT JOIN cards c ON c.student_id = s.id AND c.active = 1
     WHERE ${conditions.join(' AND ')}
     ORDER BY s.name
-  `).all(...params);
+  `
+    )
+    .all(...params);
   return c.json(students);
 });
 
@@ -45,25 +60,33 @@ app.get('/:id', authMiddleware, async (c) => {
     return c.json({ error: 'Access denied' }, 403);
   }
 
-  const student = await db.prepare(`
+  const student = await db
+    .prepare(
+      `
     SELECT s.id, s.name, s.email, s.class, s.balance, s.role, s.created_at,
            c.uid AS card_uid, c.active AS card_active, c.id AS card_id
     FROM students s
     LEFT JOIN cards c ON c.student_id = s.id AND c.active = 1
     WHERE s.id = ?
-  `).get(id);
+  `
+    )
+    .get(id);
 
   if (!student) return c.json({ error: 'Student not found' }, 404);
 
-  const txns = await db.prepare(
-    'SELECT * FROM transactions WHERE student_id = ? ORDER BY created_at DESC LIMIT 50'
-  ).all(id);
+  const txns = await db
+    .prepare('SELECT * FROM transactions WHERE student_id = ? ORDER BY created_at DESC LIMIT 50')
+    .all(id);
 
-  const spending = await db.prepare(`
+  const spending = await db
+    .prepare(
+      `
     SELECT description, SUM(amount) AS total
     FROM transactions WHERE student_id = ? AND type = 'debit'
     GROUP BY description ORDER BY total DESC LIMIT 5
-  `).all(id);
+  `
+    )
+    .all(id);
 
   return c.json({ ...student, transactions: txns, spendingBreakdown: spending });
 });
@@ -79,13 +102,17 @@ app.post('/', authMiddleware, shopOwnerMiddleware, async (c) => {
   const existing = await db.prepare('SELECT id FROM students WHERE email = ?').get(email);
   if (existing) return c.json({ error: 'Email already registered' }, 409);
 
-  const id      = 'stu-' + uuidv4().slice(0, 8);
+  const id = 'stu-' + uuidv4().slice(0, 8);
   const pinHash = bcrypt.hashSync(String(pin), 10);
 
-  await db.prepare(`
+  await db
+    .prepare(
+      `
     INSERT INTO students (id, name, email, class, balance, pin_hash, role)
     VALUES (?, ?, ?, ?, ?, ?, 'student')
-  `).run(id, name, email, cls, Number(balance), pinHash);
+  `
+    )
+    .run(id, name, email, cls, Number(balance), pinHash);
 
   return c.json({ id, name, email, class: cls, balance: Number(balance) }, 201);
 });
@@ -95,10 +122,14 @@ app.put('/:id', authMiddleware, shopOwnerMiddleware, async (c) => {
   const db = c.get('db');
   const id = c.req.param('id');
   const { name, email, class: cls } = await c.req.json();
-  await db.prepare(`
+  await db
+    .prepare(
+      `
     UPDATE students SET name = COALESCE(?, name), email = COALESCE(?, email), class = COALESCE(?, class)
     WHERE id = ?
-  `).run(name || null, email || null, cls || null, id);
+  `
+    )
+    .run(name || null, email || null, cls || null, id);
   return c.json({ message: 'Student updated' });
 });
 
@@ -122,9 +153,13 @@ app.delete('/:id', authMiddleware, staffMiddleware, async (c) => {
   await db.prepare('UPDATE students SET active = 0 WHERE id = ?').run(id);
 
   await logAction(db, {
-    actorId: user.id, actorRole: user.role, action: 'account_deactivated',
-    entity: target.role === 'student' ? 'students' : 'staff', entityId: id,
-    before: { active: 1 }, after: { active: 0 },
+    actorId: user.id,
+    actorRole: user.role,
+    action: 'account_deactivated',
+    entity: target.role === 'student' ? 'students' : 'staff',
+    entityId: id,
+    before: { active: 1 },
+    after: { active: 0 },
   });
 
   return c.json({ message: 'Student removed' });
@@ -139,13 +174,17 @@ app.get('/:id/card-history', authMiddleware, async (c) => {
     return c.json({ error: 'Access denied' }, 403);
   }
 
-  const txns = await db.prepare(`
+  const txns = await db
+    .prepare(
+      `
     SELECT t.*, c.uid AS card_uid
     FROM transactions t
     LEFT JOIN cards c ON c.student_id = t.student_id AND c.active = 1
     WHERE t.student_id = ?
     ORDER BY t.created_at DESC
-  `).all(id);
+  `
+    )
+    .all(id);
 
   return c.json(txns);
 });

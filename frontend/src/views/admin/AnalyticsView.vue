@@ -1,5 +1,5 @@
 <template>
-  <ion-page>
+  <template>
     <ion-header class="ion-no-border">
       <ion-toolbar>
         <ion-title>School Analytics</ion-title>
@@ -87,14 +87,14 @@
 
       <div style="height: 24px" />
     </ion-content>
-  </ion-page>
+  </template>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import {
-  IonPage, IonHeader, IonToolbar, IonTitle, IonButtons, IonButton, IonContent,
+  IonHeader, IonToolbar, IonTitle, IonButtons, IonButton, IonContent,
   IonIcon, IonSpinner, IonRefresher, IonRefresherContent,
 } from '@ionic/vue';
 import { chevronBackOutline, chevronForwardOutline, logOutOutline } from 'ionicons/icons';
@@ -114,7 +114,7 @@ interface Overview {
 const router = useRouter();
 const auth   = useAuthStore();
 
-const loading     = ref(false);
+const loading     = ref(true);
 const data        = ref<Overview | null>(null);
 const monthOffset = ref(0);
 
@@ -153,6 +153,8 @@ async function load() {
   try {
     const { data: res } = await api.get('/admin/analytics/overview', { params: { month: monthParam.value } });
     data.value = res;
+  } catch (err: any) {
+    console.error('Failed to load analytics:', err?.response?.data?.error || err.message);
   } finally {
     loading.value = false;
   }
@@ -204,4 +206,5 @@ onMounted(load);
 .top-item-spend { font-size: 14px; font-weight: 700; color: var(--sp-text); margin: 0; }
 
 .center { display: flex; justify-content: center; padding: 32px; }
+ion-content { --background: var(--sp-bg); }
 </style>

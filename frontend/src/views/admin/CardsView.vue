@@ -1,5 +1,5 @@
 <template>
-  <ion-page>
+  <template>
     <ion-header class="ion-no-border">
       <ion-toolbar>
         <ion-title>NFC Cards</ion-title>
@@ -49,14 +49,14 @@
 
       <div style="height: 24px" />
     </ion-content>
-  </ion-page>
+  </template>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import {
-  IonPage, IonHeader, IonToolbar, IonTitle, IonButtons, IonButton, IonContent,
+  IonHeader, IonToolbar, IonTitle, IonButtons, IonButton, IonContent,
   IonIcon, IonSpinner, IonRefresher, IonRefresherContent,
 } from '@ionic/vue';
 import { wifiOutline, banOutline, refreshOutline, logOutOutline } from 'ionicons/icons';
@@ -72,7 +72,7 @@ const router = useRouter();
 const auth   = useAuthStore();
 
 const cards      = ref<Card[]>([]);
-const loading    = ref(false);
+const loading    = ref(true);
 const processing = ref(false);
 const q          = ref('');
 
@@ -87,6 +87,8 @@ async function load() {
   try {
     const { data } = await api.get('/nfc/cards');
     cards.value = data;
+  } catch (err: any) {
+    console.error('Failed to load cards:', err?.response?.data?.error || err.message);
   } finally {
     loading.value = false;
   }
@@ -95,6 +97,7 @@ async function load() {
 async function toggle(c: Card) {
   processing.value = true;
   try { await api.patch(`/nfc/cards/${c.id}/toggle`); await load(); }
+  catch (err: any) { console.error('Failed to toggle card:', err?.response?.data?.error || err.message); }
   finally { processing.value = false; }
 }
 
@@ -151,4 +154,5 @@ onMounted(load);
 .empty-state { display: flex; flex-direction: column; align-items: center; padding: 48px 16px; gap: 10px; color: var(--sp-subtext); font-size: 14px; }
 .empty-state ion-icon { font-size: 52px; opacity: 0.4; }
 .center { display: flex; justify-content: center; padding: 32px; }
+ion-content { --background: var(--sp-bg); }
 </style>

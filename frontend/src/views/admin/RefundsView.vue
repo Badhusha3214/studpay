@@ -1,5 +1,5 @@
 <template>
-  <ion-page>
+  <template>
     <ion-header class="ion-no-border">
       <ion-toolbar>
         <ion-buttons slot="start">
@@ -62,14 +62,14 @@
 
       <div style="height: 24px" />
     </ion-content>
-  </ion-page>
+  </template>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import {
-  IonPage, IonHeader, IonToolbar, IonTitle, IonButtons, IonButton, IonContent,
+  IonHeader, IonToolbar, IonTitle, IonButtons, IonButton, IonContent,
   IonIcon, IonSpinner, IonRefresher, IonRefresherContent, alertController,
 } from '@ionic/vue';
 import { arrowBackOutline, cashOutline, checkmarkOutline, closeOutline } from 'ionicons/icons';
@@ -84,7 +84,7 @@ interface RefundOrder {
 const router = useRouter();
 
 const refunds    = ref<RefundOrder[]>([]);
-const loading    = ref(false);
+const loading    = ref(true);
 const processing = ref(false);
 const status     = ref<'refund_pending' | 'refunded'>('refund_pending');
 
@@ -102,6 +102,8 @@ async function load() {
   try {
     const { data } = await api.get('/admin/refunds', { params: { status: status.value } });
     refunds.value = data;
+  } catch (err: any) {
+    console.error('Failed to load refunds:', err?.response?.data?.error || err.message);
   } finally {
     loading.value = false;
   }
@@ -119,6 +121,7 @@ async function approve(r: RefundOrder) {
         text: 'Approve', handler: async () => {
           processing.value = true;
           try { await api.patch(`/admin/refunds/${r.id}/approve`); await load(); }
+          catch (err: any) { console.error('Failed to approve refund:', err?.response?.data?.error || err.message); }
           finally { processing.value = false; }
         },
       },
@@ -137,6 +140,7 @@ async function reject(r: RefundOrder) {
         text: 'Deny', role: 'destructive', handler: async (vals) => {
           processing.value = true;
           try { await api.patch(`/admin/refunds/${r.id}/reject`, { reason: vals.reason || undefined }); await load(); }
+          catch (err: any) { console.error('Failed to reject refund:', err?.response?.data?.error || err.message); }
           finally { processing.value = false; }
         },
       },
@@ -190,4 +194,5 @@ onMounted(load);
 .empty-state { display: flex; flex-direction: column; align-items: center; padding: 48px 16px; gap: 10px; color: var(--sp-subtext); font-size: 14px; }
 .empty-state ion-icon { font-size: 52px; opacity: 0.4; }
 .center { display: flex; justify-content: center; padding: 32px; }
+ion-content { --background: var(--sp-bg); }
 </style>

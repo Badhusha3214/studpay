@@ -1,5 +1,5 @@
 <template>
-  <ion-page>
+  <template>
     <ion-header class="ion-no-border">
       <ion-toolbar>
         <ion-buttons slot="start">
@@ -84,14 +84,14 @@
 
       <div style="height: 24px" />
     </ion-content>
-  </ion-page>
+  </template>
 </template>
 
 <script setup lang="ts">
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 import {
-  IonPage, IonHeader, IonToolbar, IonTitle, IonButtons, IonButton, IonContent,
+  IonHeader, IonToolbar, IonTitle, IonButtons, IonButton, IonContent,
   IonIcon, IonSpinner,
 } from '@ionic/vue';
 import { arrowBackOutline, addOutline, closeCircleOutline } from 'ionicons/icons';
@@ -191,4 +191,5 @@ async function submit() {
 .error-icon { color: var(--sp-orange); font-size: 18px; flex-shrink: 0; margin-top: 2px; }
 .error-row-title { font-size: 13px; font-weight: 700; margin: 0; }
 .error-row-msg { font-size: 12px; color: var(--sp-subtext); margin: 2px 0 0; }
+ion-content { --background: var(--sp-bg); }
 </style>

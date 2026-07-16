@@ -1,5 +1,5 @@
 <template>
-  <ion-page>
+  <template>
     <ion-header class="ion-no-border">
       <ion-toolbar>
         <ion-title>Staff Accounts</ion-title>
@@ -19,6 +19,7 @@
       <p class="sp-section-title">Create Staff Account</p>
       <div class="sp-card fade-up create-card">
         <div class="role-toggle">
+          <button type="button" class="role-btn" :class="{ active: newRole === 'cashier' }" @click="newRole = 'cashier'">Cashier</button>
           <button type="button" class="role-btn" :class="{ active: newRole === 'shop_owner' }" @click="newRole = 'shop_owner'">Shop Owner</button>
           <button type="button" class="role-btn" :class="{ active: newRole === 'school_admin' }" @click="newRole = 'school_admin'">School Admin</button>
         </div>
@@ -31,7 +32,7 @@
           <label>Email</label>
           <input v-model="form.email" type="email" placeholder="e.g. meera@studpay.school" class="form-input" />
         </div>
-        <div v-if="newRole === 'shop_owner'" class="form-group">
+        <div v-if="newRole === 'shop_owner' || newRole === 'cashier'" class="form-group">
           <label>Shop</label>
           <select v-model="form.shopId" class="form-input form-select">
             <option value="">+ Create a new shop</option>
@@ -43,6 +44,10 @@
           <input v-model="form.merchantName" placeholder="e.g. Sports Store" class="form-input" />
         </div>
         <div v-if="newRole === 'shop_owner'" class="form-group">
+          <label>Contact Phone (optional)</label>
+          <input v-model="form.phone" type="tel" placeholder="e.g. 9876543210" class="form-input" />
+        </div>
+        <div v-if="newRole === 'cashier'" class="form-group">
           <label>Contact Phone (optional)</label>
           <input v-model="form.phone" type="tel" placeholder="e.g. 9876543210" class="form-input" />
         </div>
@@ -69,10 +74,10 @@
             <p class="staff-name">{{ s.name }}</p>
             <p class="staff-meta">{{ s.email }}{{ s.merchant_name ? ` · ${s.merchant_name}` : '' }}</p>
           </div>
-          <span class="badge" :class="s.role === 'school_admin' ? 'admin-badge' : 'shop-badge'">
-            {{ s.role === 'school_admin' ? 'Admin' : 'Shop Owner' }}
+          <span class="badge" :class="s.role === 'school_admin' ? 'admin-badge' : s.role === 'cashier' ? 'cashier-badge' : 'shop-badge'">
+            {{ s.role === 'school_admin' ? 'Admin' : s.role === 'cashier' ? 'Cashier' : 'Shop Owner' }}
           </span>
-          <button v-if="s.role === 'shop_owner'" class="action-btn" title="Edit" @click="editCashier(s)">
+          <button v-if="s.role === 'shop_owner' || s.role === 'cashier'" class="action-btn" title="Edit" @click="editCashier(s)">
             <ion-icon :icon="createOutline" />
           </button>
           <button v-if="s.active" class="action-btn danger" title="Deactivate" @click="confirmDeactivate(s)">
@@ -86,14 +91,14 @@
 
       <div style="height: 24px" />
     </ion-content>
-  </ion-page>
+  </template>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import {
-  IonPage, IonHeader, IonToolbar, IonTitle, IonButtons, IonButton, IonContent,
+  IonHeader, IonToolbar, IonTitle, IonButtons, IonButton, IonContent,
   IonIcon, IonSpinner, alertController,
 } from '@ionic/vue';
 import { trashOutline, refreshOutline, logOutOutline, createOutline } from 'ionicons/icons';
@@ -102,7 +107,7 @@ import { useAuthStore } from '@/store/auth';
 
 interface Staff {
   id: string; name: string; email: string; merchant_name: string | null;
-  phone: string | null; role: 'shop_owner' | 'school_admin'; active: number;
+  phone: string | null; role: 'shop_owner' | 'school_admin' | 'cashier'; active: number;
 }
 interface Shop { id: string; name: string; }
 
@@ -111,10 +116,10 @@ const auth   = useAuthStore();
 
 const staff       = ref<Staff[]>([]);
 const shops       = ref<Shop[]>([]);
-const loading     = ref(false);
+const loading     = ref(true);
 const processing  = ref(false);
 
-const newRole = ref<'shop_owner' | 'school_admin'>('shop_owner');
+const newRole = ref<'cashier' | 'shop_owner' | 'school_admin'>('cashier');
 const form    = ref({ name: '', email: '', pin: '', merchantName: '', phone: '', shopId: '' });
 
 const createLoading = ref(false);
@@ -124,6 +129,7 @@ const createMsgClass = ref('');
 const canSubmit = computed(() => {
   if (!form.value.name || !form.value.email || !form.value.pin) return false;
   if (newRole.value === 'shop_owner' && !form.value.merchantName && !form.value.shopId) return false;
+  if (newRole.value === 'cashier' && !form.value.shopId) return false;
   return true;
 });
 
@@ -133,6 +139,8 @@ async function load() {
     const [staffRes, shopsRes] = await Promise.all([api.get('/admin/staff'), api.get('/admin/shops')]);
     staff.value = staffRes.data;
     shops.value = shopsRes.data;
+  } catch (err: any) {
+    console.error('Failed to load staff:', err?.response?.data?.error || err.message);
   } finally {
     loading.value = false;
   }
@@ -146,9 +154,14 @@ async function createStaff() {
   createLoading.value = true;
   createMsg.value = '';
   try {
-    const endpoint = newRole.value === 'shop_owner' ? '/admin/shop-owners' : '/admin/school-admins';
+    let endpoint = '/admin/school-admins';
     const payload: any = { name: form.value.name, email: form.value.email, pin: form.value.pin };
-    if (newRole.value === 'shop_owner') {
+    if (newRole.value === 'cashier') {
+      endpoint = '/admin/cashiers';
+      payload.shopId = form.value.shopId;
+      payload.phone = form.value.phone || undefined;
+    } else if (newRole.value === 'shop_owner') {
+      endpoint = '/admin/shop-owners';
       if (form.value.shopId) payload.shopId = form.value.shopId;
       else payload.merchantName = form.value.merchantName;
       payload.phone = form.value.phone || undefined;
@@ -188,6 +201,8 @@ async function editCashier(s: Staff) {
               phone: vals.phone === '' ? null : vals.phone,
             });
             await load();
+          } catch (err: any) {
+            console.error('Failed to update cashier:', err?.response?.data?.error || err.message);
           } finally {
             processing.value = false;
           }
@@ -209,6 +224,7 @@ async function confirmDeactivate(s: Staff) {
         handler: async () => {
           processing.value = true;
           try { await api.delete(`/students/${s.id}`); await load(); }
+          catch (err: any) { console.error('Failed to deactivate:', err?.response?.data?.error || err.message); }
           finally { processing.value = false; }
         },
       },
@@ -220,6 +236,7 @@ async function confirmDeactivate(s: Staff) {
 async function reactivate(s: Staff) {
   processing.value = true;
   try { await api.patch(`/admin/students/${s.id}/reactivate`); await load(); }
+  catch (err: any) { console.error('Failed to reactivate:', err?.response?.data?.error || err.message); }
   finally { processing.value = false; }
 }
 
@@ -283,8 +300,9 @@ onMounted(load);
 .staff-meta { font-size: 12px; color: var(--sp-subtext); margin: 2px 0 0; }
 
 .badge { font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 100px; flex-shrink: 0; }
-.badge.shop-badge  { background: var(--sp-teal-light); color: var(--sp-teal); }
-.badge.admin-badge { background: var(--sp-purple-light); color: var(--sp-purple); }
+.badge.shop-badge   { background: var(--sp-teal-light); color: var(--sp-teal); }
+.badge.admin-badge  { background: var(--sp-purple-light); color: var(--sp-purple); }
+.badge.cashier-badge { background: #FFF3E0; color: #E65100; }
 
 .action-btn {
   width: 36px; height: 36px; border-radius: 10px; border: none;
@@ -295,4 +313,5 @@ onMounted(load);
 .action-btn.danger { color: var(--sp-orange); }
 
 .center { display: flex; justify-content: center; padding: 32px; }
+ion-content { --background: var(--sp-bg); }
 </style>

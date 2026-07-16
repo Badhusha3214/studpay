@@ -1,5 +1,5 @@
 <template>
-  <ion-page>
+  <template>
     <ion-header class="ion-no-border">
       <ion-toolbar>
         <ion-title>Students</ion-title>
@@ -102,14 +102,14 @@
 
       <div style="height: 24px" />
     </ion-content>
-  </ion-page>
+  </template>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import {
-  IonPage, IonHeader, IonToolbar, IonTitle, IonButtons, IonButton, IonContent,
+  IonHeader, IonToolbar, IonTitle, IonButtons, IonButton, IonContent,
   IonIcon, IonSpinner, alertController,
 } from '@ionic/vue';
 import {
@@ -128,7 +128,7 @@ const router = useRouter();
 const auth   = useAuthStore();
 
 const students   = ref<Student[]>([]);
-const loading    = ref(false);
+const loading    = ref(true);
 const processing = ref(false);
 
 const q      = ref('');
@@ -159,6 +159,8 @@ async function load() {
   try {
     const { data } = await api.get('/students', { params: { q: q.value || undefined, class: cls.value || undefined, active: active.value } });
     students.value = data;
+  } catch (err: any) {
+    console.error('Failed to load students:', err?.response?.data?.error || err.message);
   } finally {
     loading.value = false;
   }
@@ -212,6 +214,8 @@ async function editStudent(s: Student) {
               phone: vals.phone === '' ? null : vals.phone,
             });
             await load();
+          } catch (err: any) {
+            console.error('Failed to update student:', err?.response?.data?.error || err.message);
           } finally {
             processing.value = false;
           }
@@ -243,6 +247,8 @@ async function resetPin(s: Student) {
               buttons: ['OK'],
             });
             await result.present();
+          } catch (err: any) {
+            console.error('Failed to reset PIN:', err?.response?.data?.error || err.message);
           } finally {
             processing.value = false;
           }
@@ -264,6 +270,7 @@ async function confirmDeactivate(s: Student) {
         handler: async () => {
           processing.value = true;
           try { await api.delete(`/students/${s.id}`); await load(); }
+          catch (err: any) { console.error('Failed to deactivate:', err?.response?.data?.error || err.message); }
           finally { processing.value = false; }
         },
       },
@@ -275,6 +282,7 @@ async function confirmDeactivate(s: Student) {
 async function reactivate(s: Student) {
   processing.value = true;
   try { await api.patch(`/admin/students/${s.id}/reactivate`); await load(); }
+  catch (err: any) { console.error('Failed to reactivate:', err?.response?.data?.error || err.message); }
   finally { processing.value = false; }
 }
 
@@ -360,4 +368,5 @@ onMounted(load);
 .empty-state { display: flex; flex-direction: column; align-items: center; padding: 48px 16px; gap: 10px; color: var(--sp-subtext); font-size: 14px; }
 .empty-state ion-icon { font-size: 52px; opacity: 0.4; }
 .center { display: flex; justify-content: center; padding: 32px; }
+ion-content { --background: var(--sp-bg); }
 </style>

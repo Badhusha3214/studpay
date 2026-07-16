@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { authMiddleware, shopOwnerMiddleware, staffMiddleware } from '../middleware/auth.js';
+import { authMiddleware, shopOwnerMiddleware, staffMiddleware, getSchoolId } from '../middleware/auth.js';
 import { registerCard } from '../services/cards.js';
 
 const app = new Hono();
@@ -7,30 +7,42 @@ const app = new Hono();
 // GET /nfc/cards — list all NFC cards with student info
 app.get('/cards', authMiddleware, staffMiddleware, async (c) => {
   const db = c.get('db');
-  const cards = await db.prepare(`
+  const schoolId = getSchoolId(c);
+  const params = schoolId ? [schoolId] : [];
+  const schoolFilter = schoolId ? 'WHERE s.school_id = ?' : '';
+  const cards = await db
+    .prepare(
+      `
     SELECT c.id, c.uid, c.active, c.linked_at,
            s.id AS student_id, s.name, s.class, s.email, s.balance
     FROM cards c
     JOIN students s ON c.student_id = s.id
+    ${schoolFilter}
     ORDER BY c.linked_at DESC
-  `).all();
+  `
+    )
+    .all(...params);
   return c.json(cards);
 });
 
 // GET /nfc/cards/:uid — get a single card by UID
 app.get('/cards/:uid', authMiddleware, staffMiddleware, async (c) => {
   const db = c.get('db');
-  const card = await db.prepare(`
+  const card = await db
+    .prepare(
+      `
     SELECT c.id, c.uid, c.active, c.linked_at,
            s.id AS student_id, s.name, s.class, s.email, s.balance
     FROM cards c JOIN students s ON c.student_id = s.id
     WHERE c.uid = ?
-  `).get(c.req.param('uid').toUpperCase());
+  `
+    )
+    .get(c.req.param('uid').toUpperCase());
   if (!card) return c.json({ error: 'Card not found' }, 404);
 
-  const txns = await db.prepare(
-    'SELECT * FROM transactions WHERE student_id = ? ORDER BY created_at DESC LIMIT 20'
-  ).all(card.student_id);
+  const txns = await db
+    .prepare('SELECT * FROM transactions WHERE student_id = ? ORDER BY created_at DESC LIMIT 20')
+    .all(card.student_id);
 
   return c.json({ ...card, recentTransactions: txns });
 });
@@ -44,9 +56,9 @@ app.post('/lookup', authMiddleware, shopOwnerMiddleware, async (c) => {
   const card = await db.prepare('SELECT * FROM cards WHERE uid = ? AND active = 1').get(uid.toUpperCase());
   if (!card) return c.json({ error: 'Card not registered or inactive' }, 404);
 
-  const student = await db.prepare(
-    'SELECT id, name, email, class, balance, allergies FROM students WHERE id = ?'
-  ).get(card.student_id);
+  const student = await db
+    .prepare('SELECT id, name, email, class, balance, allergies FROM students WHERE id = ?')
+    .get(card.student_id);
 
   return c.json({ card, student });
 });

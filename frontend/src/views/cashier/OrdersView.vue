@@ -25,7 +25,7 @@
         <ion-refresher-content />
       </ion-refresher>
 
-      <div v-if="stats" class="summary-strip fade-up">
+      <div v-if="stats" class="summary-strip fade-up" style="display: none">
         <div class="summary-stat">
           <p class="summary-val">₹{{ stats.todayRevenue.toFixed(0) }}</p>
           <p class="summary-lbl">Today's Sales</p>
@@ -40,7 +40,7 @@
         </div>
       </div>
 
-      <div class="c-card fade-up filter-card">
+      <div v-if="false" class="c-card fade-up filter-card">
         <input v-model="q" placeholder="Search by student name" class="c-search-input" @input="debouncedReset" />
         <div class="status-chips">
           <button
@@ -59,8 +59,6 @@
         </button>
       </div>
 
-      <p class="section-title">{{ orders.length }} order{{ orders.length === 1 ? '' : 's' }}</p>
-
       <div v-if="loading" class="center"><ion-spinner name="crescent" color="primary" /></div>
 
       <div v-else-if="orders.length === 0" class="empty-state">
@@ -69,7 +67,18 @@
       </div>
 
       <div v-else class="orders-list">
-        <div v-for="order in orders" :key="order.id" class="order-card fade-up">
+        <p class="section-title top-title">Latest order</p>
+        <div class="order-card latest-order fade-up">
+          <span class="latest-label">Most recent</span>
+          <div class="order-header">
+            <div class="order-student"><p class="order-student-name">{{ orders[0].student_name }}</p><p class="order-student-meta">{{ orders[0].class }}</p></div>
+            <div class="order-total-wrap"><p class="order-total">â‚¹{{ Number(orders[0].amount).toFixed(2) }}</p><p class="order-date">{{ formatDate(orders[0].created_at) }}</p></div>
+          </div>
+          <div class="order-lines"><div v-for="(line, i) in orders[0].items" :key="i" class="order-line"><span>{{ line.name }} &times;{{ line.quantity }}</span><span>â‚¹{{ Number(line.lineAmount).toFixed(2) }}</span></div></div>
+          <div class="order-footer"><span class="badge" :class="`status-${orders[0].status}`">{{ statusLabel(orders[0].status) }}</span><button v-if="orders[0].status === 'completed'" class="refund-link" @click="requestRefund(orders[0])">Request Refund</button><span v-else-if="orders[0].status === 'refund_pending'" class="refund-note">Awaiting admin approval</span></div>
+        </div>
+        <p v-if="orders.length > 1" class="section-title">Earlier orders</p>
+        <div v-for="order in orders.slice(1)" :key="order.id" class="order-card fade-up">
           <div class="order-header">
             <div class="order-student">
               <p class="order-student-name">{{ order.student_name }}</p>
@@ -99,6 +108,15 @@
           <ion-infinite-scroll-content loading-spinner="crescent" />
         </ion-infinite-scroll>
       </div>
+
+      <section class="bottom-tools fade-up">
+        <div v-if="stats" class="summary-strip">
+          <div class="summary-stat"><p class="summary-val">â‚¹{{ stats.todayRevenue.toFixed(0) }}</p><p class="summary-lbl">Today's Sales</p></div>
+          <div class="summary-stat"><p class="summary-val">{{ stats.todayTransactions }}</p><p class="summary-lbl">Transactions</p></div>
+          <div class="summary-stat"><p class="summary-val">{{ stats.pendingApprovals }}</p><p class="summary-lbl">Pending Approval</p></div>
+        </div>
+        <div class="c-card filter-card"><p class="tools-title">Search, filter &amp; export</p><input v-model="q" placeholder="Search by student name" class="c-search-input" @input="debouncedReset" /><div class="status-chips"><button v-for="opt in statusOptions" :key="opt.value" class="status-chip" :class="{ active: status === opt.value }" @click="status = opt.value; reset()">{{ opt.label }}</button></div><div class="date-row"><input v-model="from" type="date" class="c-search-input date-input" @change="reset" /><input v-model="to" type="date" class="c-search-input date-input" @change="reset" /></div><button class="export-btn" :disabled="exporting" @click="exportCsv"><ion-icon :icon="downloadOutline" />{{ exporting ? 'Exportingâ€¦' : 'Export CSV' }}</button></div>
+      </section>
 
       <div style="height: 24px" />
     </ion-content>
@@ -181,6 +199,8 @@ async function reset() {
     const { data } = await api.get('/shop/orders', { params: queryParams() });
     orders.value = data.orders;
     nextCursor.value = data.nextCursor;
+  } catch (err: any) {
+    console.error('Failed to load orders:', err?.response?.data?.error || err.message);
   } finally {
     loading.value = false;
   }
@@ -240,6 +260,8 @@ async function requestRefund(order: Order) {
           try {
             await api.patch(`/shop/orders/${order.id}/refund`, { reason: vals.reason });
             await reset();
+          } catch (err: any) {
+            console.error('Failed to request refund:', err?.response?.data?.error || err.message);
           } finally {
             processing.value = false;
           }
@@ -261,12 +283,24 @@ async function exportCsv() {
     a.download = `orders-${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
+  } catch (err: any) {
+    console.error('Failed to export CSV:', err?.response?.data?.error || err.message);
   } finally {
     exporting.value = false;
   }
 }
 
-function logout() { auth.logout(); router.replace('/login'); }
+async function logout() {
+  const alert = await alertController.create({
+    header: 'Log out of terminal?',
+    message: 'You will need to sign in again before taking payments.',
+    buttons: [
+      { text: 'Cancel', role: 'cancel' },
+      { text: 'Log out', role: 'destructive', handler: () => { auth.logout(); router.replace('/login'); } },
+    ],
+  });
+  await alert.present();
+}
 
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -321,6 +355,9 @@ onUnmounted(() => {
 }
 
 .orders-list { padding: 4px 0; }
+.top-title { padding-top: 10px; }
+.latest-order { position: relative; border: 1px solid rgba(0, 184, 148, .32); background: linear-gradient(145deg, #ffffff, #edfffa); box-shadow: var(--c-shadow-lg); }
+.latest-label { position: absolute; top: -10px; right: 14px; background: var(--c-green); color: white; padding: 4px 9px; border-radius: 99px; font-size: 9px; text-transform: uppercase; letter-spacing: .07em; font-weight: 800; }
 .order-card {
   background: white; border-radius: 16px;
   margin: 6px 14px; padding: 14px;
@@ -349,6 +386,10 @@ onUnmounted(() => {
 
 .refund-link { border: none; background: transparent; color: var(--c-orange); font-size: 12px; font-weight: 700; cursor: pointer; }
 .refund-note { font-size: 11px; color: var(--c-subtext); font-weight: 600; }
+.bottom-tools { margin-top: 18px; padding: 15px 0 2px; border-top: 1px solid var(--c-border); background: rgba(0, 184, 148, .035); }
+.bottom-tools .summary-strip { margin-top: 0; border: 1px solid rgba(255,255,255,.8); }
+.bottom-tools .filter-card { margin-top: 12px; }
+.tools-title { margin: 0 0 2px; font-size: 13px; font-weight: 800; color: var(--c-text); }
 
 .empty-state { display: flex; flex-direction: column; align-items: center; padding: 48px 16px; gap: 10px; color: var(--c-subtext); font-size: 14px; }
 .empty-state ion-icon { font-size: 52px; opacity: 0.4; }

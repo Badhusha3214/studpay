@@ -1,5 +1,5 @@
 <template>
-  <ion-page>
+  <template>
     <ion-header class="ion-no-border">
       <ion-toolbar>
         <ion-buttons slot="start">
@@ -56,14 +56,14 @@
 
       <div style="height: 24px" />
     </ion-content>
-  </ion-page>
+  </template>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import {
-  IonPage, IonHeader, IonToolbar, IonTitle, IonButtons, IonButton, IonContent,
+  IonHeader, IonToolbar, IonTitle, IonButtons, IonButton, IonContent,
   IonIcon, IonSpinner, alertController,
 } from '@ionic/vue';
 import {
@@ -78,7 +78,7 @@ interface Shop {
 const router = useRouter();
 
 const shops      = ref<Shop[]>([]);
-const loading    = ref(false);
+const loading    = ref(true);
 const processing = ref(false);
 
 const form           = ref({ name: '', location: '' });
@@ -91,6 +91,8 @@ async function load() {
   try {
     const { data } = await api.get('/admin/shops');
     shops.value = data;
+  } catch (err: any) {
+    console.error('Failed to load shops:', err?.response?.data?.error || err.message);
   } finally {
     loading.value = false;
   }
@@ -128,6 +130,8 @@ async function editShop(s: Shop) {
           try {
             await api.patch(`/admin/shops/${s.id}`, { name: vals.name || undefined, location: vals.location });
             await load();
+          } catch (err: any) {
+            console.error('Failed to update shop:', err?.response?.data?.error || err.message);
           } finally {
             processing.value = false;
           }
@@ -143,6 +147,8 @@ async function toggleActive(s: Shop) {
   try {
     await api.patch(`/admin/shops/${s.id}`, { active: !s.active });
     await load();
+  } catch (err: any) {
+    console.error('Failed to toggle shop:', err?.response?.data?.error || err.message);
   } finally {
     processing.value = false;
   }
@@ -206,4 +212,5 @@ onMounted(load);
 }
 
 .center { display: flex; justify-content: center; padding: 32px; }
+ion-content { --background: var(--sp-bg); }
 </style>
